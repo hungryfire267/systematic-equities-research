@@ -42,19 +42,31 @@ class PVO:
         percentile_check(signal_percentile[0], signal_percentile[1])
         
         self.slow, self.fast = span_list[0], span_list[1]
-        self.lower, self.upper = signal_percentile[0], signal_percentile[1]
+        self.lower_extreme, self.upper_extreme = extreme_list[0], extreme_list[1]
+        self.lower_signal, self.upper_signal = signal_percentile[0], signal_percentile[1]
         
         
     def compute_ema(self, df: pd.DataFrame, span: int) -> pd.DataFrame:
-        return df.ewm(span=span, adjust=False).mean()
+        return self.volume_df.ewm(span=span, adjust=False).mean()
     
-    def calculate_pvo(self, df: pd.DataFrame): 
-        ema_slow = self.compute_ema(df, span=self.slow_span)
-        ema_fast = self.compute_ema(df, span=self.fast_span)
+    def calculate_pvo(self) -> None: 
+        ema_slow = self.compute_ema(self.volume_df, span=self.slow_span)
+        ema_fast = self.compute_ema(self.volume_df, span=self.fast_span)
         pvo_df = (ema_fast - ema_slow)/ema_slow
         
         pvo_df = pvo_df.clip(lower=pvo_df.quantile(self.lower), upper=pvo_df.quantile(self.upper)) # Capping the extremes
-        
+        self.pvo_df = pvo_df
+    
+    def get_pvo_signals(self): 
+        ranks = self.pvo_df.rank(axis=1, pct=True)
+        pvo_signal_df = pd.DataFrame(0, index=self.pvo_df.index, columns=self.pvo_df.columns)
+        pvo_signal_df[ranks >= self.upper_signal] = 1
+        pvo_signal_df[ranks <= self.lower_signal] = -1
+        self.pvo_signal_df = pvo_signal_df
+    
+    def run(self): 
+        self.compute_pvo()
+        self.get_pvo_signals()   
     
 class PairsTrading: 
     def __init__(self, window): 
