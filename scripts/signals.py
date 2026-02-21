@@ -7,11 +7,15 @@ from statsmodels.tsa.stattools import coint
 
 UNIVERSE_PATH = Path("data/asx_companies.csv")
 
+def percentile_check(lower_percentile: float, upper_percentile: float) -> None: 
+    if not (0 <= lower_percentile < upper_percentile <= 100): 
+        raise ValueError("Require 0 <= lower_percentile < upper_percentile <= 100") 
+
+
 class Momentum: 
     def __init__(self, lower_percentile: float, upper_percentile: float): 
         self.returns_df = pd.read_parquet(Path(r"data/raw/companies/returns.parquet"))
-        if not (0 <= lower_percentile < upper_percentile <= 100): 
-            raise ValueError("Require 0 <= lower_percentile < upper_percentile <= 100")
+        percentile_check(lower_percentile, upper_percentile)
         self.lower = lower_percentile
         self.upper = upper_percentile
         
@@ -27,16 +31,29 @@ class Momentum:
         self.momentum_signal_df = momentum_signal_df.reset_index()
         print(self.momentum_signal_df)
         
-class Volume: 
-    def __init__(self, mu): 
-        self.mu = mu
-        self.prices_df = pd.read_parquet(Path(r"data/raw/companies/prices.parquet"))
-        self.volume_df = pd.read_parquet(Path(r"data/raw/companies/prices.parquet"))
+class PVO: 
+    def __init__(
+        self, extreme_list: tuple[float, float], signal_percentile: tuple[float, float], span_list: tuple[int, int]
+    ): 
+        self.volume_df = pd.read_parquet(Path(r"data/raw/companies/volume.parquet"))
+        print("Checking PVO extremity check percentiles:")
+        percentile_check(extreme_list[0], extreme_list[1])
+        print("Checking valid signal percentiles:")
+        percentile_check(signal_percentile[0], signal_percentile[1])
+        
+        self.slow, self.fast = span_list[0], span_list[1]
+        self.lower, self.upper = signal_percentile[0], signal_percentile[1]
+        
+        
+    def compute_ema(self, df: pd.DataFrame, span: int) -> pd.DataFrame:
+        return df.ewm(span=span, adjust=False).mean()
     
-    def run(self): 
-        self.ldv = np.log(self.prices_df * self.volume_df)
-        self.lam = 0.2 * np.exp(-self.ldv)
-        self.z = self.mu / (self.mu + self.lam)
+    def calculate_pvo(self, df: pd.DataFrame): 
+        ema_slow = self.compute_ema(df, span=self.slow_span)
+        ema_fast = self.compute_ema(df, span=self.fast_span)
+        pvo_df = (ema_fast - ema_slow)/ema_slow
+        
+        pvo_df = pvo_df.clip(lower=pvo_df.quantile(self.lower), upper=pvo_df.quantile(self.upper)) # Capping the extremes
         
     
 class PairsTrading: 
