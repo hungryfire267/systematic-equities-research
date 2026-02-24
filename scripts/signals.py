@@ -1,7 +1,10 @@
+from pykalman import KalmanFilter
+import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pandas as pd
 from pathlib import Path
-from scripts.run_fetch import ASXPipeline
+import seaborn as sns
 from sklearn.linear_model import LinearRegression
 from statsmodels.tsa.stattools import coint
 
@@ -10,6 +13,102 @@ UNIVERSE_PATH = Path("data/asx_companies.csv")
 def percentile_check(lower_percentile: float, upper_percentile: float) -> None: 
     if not (0 <= lower_percentile < upper_percentile <= 100): 
         raise ValueError("Require 0 <= lower_percentile < upper_percentile <= 100") 
+
+
+
+class Kalman: 
+    def __init__(self, a11, a12, a22, h1, h2, window): 
+        self.prices_df = pd.read_parquet(Path(r"data/raw/companies/prices.parquet"))
+        self.log_returns_df = pd.read_parquet(Path(r"data/raw/companies/log_returns.parquet"))
+        
+        if "Date" in list(self.prices_df.columns): 
+            self.prices_df = self.prices_df.set_index("Date")
+        if "Date" in list(self.log_returns_df.columns): 
+            self.log_returns_df = self.log_returns_df.set_index("Date")
+            
+        self.window = window
+        self.A = np.array([ 
+            [a11, a12], 
+            [0, a22]
+        ])
+        self.H = np.array([[h1, h2]])
+        self.initial_state_mean = np.array([0.0, 0.0])
+        self.initial_state_covariance = np.eye(2)
+        
+        
+    def get_kalman_filter(self, stock): 
+        p = self.prices_df[stock].astype(float)
+        r = self.log_returns_df[stock].astype(float)
+        
+        var_r = r.rolling(window=self.window).var() 
+        R_t = var_r * (p ** 2)
+        Q_t = R_t/100
+        
+        print("R_t shape:", R_t.shape)
+        
+        
+        
+        
+        
+        kf = KalmanFilter(
+            transition_matrices=self.A,
+            observation_matrices=self.H,
+            transition_covariance=Q_t.values.reshape(-1, 1, 1),
+            observation_covariance=R_t.values.reshape(-1, 1, 1),
+            initial_state_mean = self.initial_state_mean, 
+            initial_state_covariance=self.initial_state_covariance
+        )
+        
+        state_mean, state_cov = kf.filter(p.values)
+        x_short = pd.Series(state_mean[:, 0], index=p.index, name=f"{stock}_short")
+        x_long = pd.Series(state_mean[:, 1], index=p.index, name=f"{stock}_long")
+        return p, x_short, x_long, state_cov    
+    
+    def get_features(self, stock): 
+        x_short, x_long, state_cov = self.get_kalman_filter(stock)
+        return x_short
+        
+    def run_kalman_filter(self): 
+        stocks = list(self.prices_df.columns)
+        
+        for stock in stocks: 
+            print(stock)
+            x_short = self.get_features(stock)
+            print(x_short)
+            break
+    
+    def plot_kalman_comparison(self, stocks: tuple[str, str]): 
+        kalman_dict = dict()
+        for stock in stocks: 
+            kalman_dict[stock] = self.get_kalman_filter(stock)
+        kalman_df = pd.DataFrame(kalman_dict)
+        kalman_df = kalman_df.reset_index()
+        
+        prices_df_filtered = self.prices_df.loc[self.prices_df["Date"].dt.year == 2024, ["Date"] + stocks]
+        self.prices_df = self.prices_df.set_index("Date")
+
+        mean_1m = self.prices_df[stocks].rolling(window=21).mean()
+        mean_1m = mean_1m.reset_index()
+        mean_1m_filtered = mean_1m.loc[mean_1m["Date"].dt.year == 2024]
+        
+        mean_2m = self.prices_df[stocks].rolling(window=42).mean() 
+        mean_2m = mean_2m.reset_index()
+        mean_2m_filtered = mean_2m.loc[mean_2m["Date"].dt.year == 2024]
+        fig, axs = plt.subplots(1, 2, figsize=(16, 6))
+        
+        kalman_df_filtered = kalman_df.loc[kalman_df["Date"].dt.year == 2024, ["Date"] + stocks]
+        
+        for i, stock in enumerate(stocks):
+            print(i)
+            sns.lineplot(x=prices_df_filtered["Date"], y=prices_df_filtered[stock], ax=axs[i])
+            sns.lineplot(x=mean_1m_filtered["Date"], y=mean_1m_filtered[stock], ax=axs[i])
+            sns.lineplot(x=mean_2m_filtered["Date"], y=mean_2m_filtered[stock], ax=axs[i])
+            sns.lineplot(x=kalman_df_filtered["Date"], y=kalman_df_filtered[stock], ax=axs[i])  
+        plt.show()
+            
+        
+    
+
 
 
 class Momentum: 
@@ -30,6 +129,13 @@ class Momentum:
         momentum_signal_df[ranks <= self.lower] = -1
         self.momentum_signal_df = momentum_signal_df.reset_index()
         print(self.momentum_signal_df)
+    
+        
+         
+        
+        
+        
+
         
 class PVO: 
     def __init__(
@@ -65,9 +171,9 @@ class PVO:
         self.pvo_signal_df = pvo_signal_df
     
     def run(self): 
-        self.compute_pvo()
+        self.calculate_pvo()
         self.get_pvo_signals()   
-    
+
 class PairsTrading: 
     def __init__(self, window): 
         self.company_df = pd.read_csv(UNIVERSE_PATH)
@@ -240,10 +346,8 @@ class MeanVolatility:
     
 
         
-    
+if __name__ == "__main__": 
+    print("hi")
+    pipeline = Kalman(a11=1.0, a12=1.0, a22=1.0, h1=1.0, h2=1.0, window=20).run_kalman_filter()
+    #pipeline.plot_kalman_comparison(["CBA.AX", "ZIP.AX"])
 
-if __name__ == "__init__": 
-    pipeline = MeanVolatility()
-    theta_df, mu_df, sigma_df = MeanVolatility().run()
-    print(mu_df)
-    print(theta_df)
