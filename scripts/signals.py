@@ -7,6 +7,7 @@ from pathlib import Path
 import seaborn as sns
 from sklearn.linear_model import LinearRegression
 from statsmodels.tsa.stattools import coint
+import statsmodels.api as sm
 
 UNIVERSE_PATH = Path("data/asx_companies.csv")
 
@@ -17,12 +18,12 @@ def percentile_check(lower_percentile: float, upper_percentile: float) -> None:
 
 
 class Kalman: 
-    def __init__(self, a11, a12, a22, h1, h2, window): 
-        self.prices_df = pd.read_parquet(Path(r"data/raw/companies/prices.parquet"))
+    def __init__(self, a11, a12, a22, h1, h2, window, r2_window): 
+        self.log_prices_df = pd.read_parquet(Path(r"data/raw/companies/log_prices.parquet"))
         self.log_returns_df = pd.read_parquet(Path(r"data/raw/companies/log_returns.parquet"))
         
-        if "Date" in list(self.prices_df.columns): 
-            self.prices_df = self.prices_df.set_index("Date")
+        if "Date" in list(self.log_prices_df.columns): 
+            self.log_prices_df = self.log_prices_df.set_index("Date")
         if "Date" in list(self.log_returns_df.columns): 
             self.log_returns_df = self.log_returns_df.set_index("Date")
             
@@ -32,44 +33,98 @@ class Kalman:
             [0, a22]
         ])
         self.H = np.array([[h1, h2]])
-        self.initial_state_mean = np.array([0.0, 0.0])
         self.initial_state_covariance = np.eye(2)
+        
+        self.r2_window = r2_window
+        self.r2_trend_dict = dict()
         
         
     def get_kalman_filter(self, stock): 
-        p = self.prices_df[stock].astype(float)
+        p = self.log_prices_df[stock].astype(float)
         r = self.log_returns_df[stock].astype(float)
         
-        var_r = r.rolling(window=self.window).var() 
-        R_t = var_r * (p ** 2)
-        Q_t = R_t/100
+        df = pd.concat({"p": p, "r": r}, axis=1).dropna()
+        p = df["p"]
+        r = df["r"]
         
-        print("R_t shape:", R_t.shape)
+        var_r = r.rolling(window=self.window).var().bfill().ffill()
+        R_series = var_r
+        Q_series = (R_series/100).bfill().ffill()
         
         
+        T = len(p)
         
-        
+        R_t = R_series.to_numpy().reshape(T, 1, 1)
+        Q_t = np.zeros((T, 2, 2))
+        Q_t[:, 0, 0] = 0.05 * R_series.bfill().ffill().to_numpy()
+        Q_t[:, 1, 1] = 0.05 * R_series.bfill().ffill().to_numpy()
+    
+        y_obs = p.to_numpy().reshape(T, 1) 
+        y0 = y_obs[0, 0]
+        self.initial_state_mean = np.array([0.5 * y0, 0.5 * y0])
         
         kf = KalmanFilter(
             transition_matrices=self.A,
             observation_matrices=self.H,
-            transition_covariance=Q_t.values.reshape(-1, 1, 1),
-            observation_covariance=R_t.values.reshape(-1, 1, 1),
+            transition_covariance=Q_t,
+            observation_covariance=R_t,
             initial_state_mean = self.initial_state_mean, 
             initial_state_covariance=self.initial_state_covariance
         )
         
-        state_mean, state_cov = kf.filter(p.values)
+        state_mean, state_cov = kf.filter(y_obs)
+        std_innovation = self.get_innovation(y_obs, state_mean, state_cov, R_t, Q_t)
+        std_innovation
         x_short = pd.Series(state_mean[:, 0], index=p.index, name=f"{stock}_short")
         x_long = pd.Series(state_mean[:, 1], index=p.index, name=f"{stock}_long")
-        return p, x_short, x_long, state_cov    
+        return y_obs, x_short, x_long, state_cov    
+    
+    def get_innovation(self, y_obs, state_mean, state_cov, R_t, Q_t): 
+        print(y_obs)
+        T = y_obs.shape[0]
+        x_pred = np.zeros_like(state_mean)
+        x_pred[0] = self.initial_state_mean
+        for i in range(1, T): 
+            x_pred[i] = self.A @ state_mean[i-1]
+        y_pred = (self.H @ x_pred.T).T
+        P_pred = np.zeros_like(state_cov)
+        P_pred[0] = self.initial_state_covariance
+        for t in range(1, T):
+            P_pred[t] = self.A @ state_cov[t - 1] @ self.A.T + Q_t[t]
+
+        S_t = np.zeros(T)
+        for t in range(T):
+            S_t[t] = (self.H @ P_pred[t] @ self.H.T + R_t[t]).item()
+            
+        innovation = y_obs.squeeze() - y_pred.squeeze()    
+        std_innovation = innovation/np.sqrt(S_t)
+        return std_innovation
+    
+    def get_R2(self, y_obs, x_long, stock): 
+        trend_r2 = np.full(len(y_obs))
+        for t in range(self.r2_window, len(y_obs)): 
+            X[t:t+self.r2_window] = x_long[t:t+r]
+            X = sm.add_constant(X.values)
+            
+            y = y_obs[t - self.r2_window:t]
+            model = sm.OLS(y.values, X).fit() 
+            
+            trend_r2[t] = model.rsquared
+            
+        if stock not in self.trend_r2_dict.keys(): 
+            self.trend_r2_dict[stock] = trend_r2
     
     def get_features(self, stock): 
-        x_short, x_long, state_cov = self.get_kalman_filter(stock)
+        p, x_short, x_long, state_cov = self.get_kalman_filter(stock)
+        self.trend_spread_dict[stock] = x_short - x_long
+        self.get_R2(y_obs, x_long, stock)
+        dx_long = x_long.diff(self.r2_window)
+        dx_long.name = f"dx_long{self.r2_window}"
+        self.dx_long_dict[stock] = dx_long
         return x_short
         
     def run_kalman_filter(self): 
-        stocks = list(self.prices_df.columns)
+        stocks = list(self.log_prices_df.columns)
         
         for stock in stocks: 
             print(stock)
@@ -107,7 +162,11 @@ class Kalman:
         plt.show()
             
         
-    
+class KalmanFilterBuilder: 
+    def __init__(self, window: int): 
+        self.window = window 
+        
+    def    
 
 
 
@@ -348,6 +407,6 @@ class MeanVolatility:
         
 if __name__ == "__main__": 
     print("hi")
-    pipeline = Kalman(a11=1.0, a12=1.0, a22=1.0, h1=1.0, h2=1.0, window=20).run_kalman_filter()
+    pipeline = Kalman(a11=0.95, a12=0.05, a22=0.995, h1=1.0, h2=1.0, window=20).run_kalman_filter()
     #pipeline.plot_kalman_comparison(["CBA.AX", "ZIP.AX"])
 

@@ -32,6 +32,7 @@ class ASXPipeline:
         self.company_codes = [str(company) + ".AX" for company in companies_df["asxCode"].tolist()]
         self.company_paths_dict = {   
             "prices": os.path.join(COMPANIES_DIR, "prices.parquet"),
+            "log_prices": os.path.join(COMPANIES_DIR, "log_prices.parquet"),
             "volume": os.path.join(COMPANIES_DIR, "volume.parquet"),
             "returns": os.path.join(COMPANIES_DIR, "returns.parquet"), 
             "log_returns": os.path.join(COMPANIES_DIR, "log_returns.parquet"),
@@ -49,6 +50,8 @@ class ASXPipeline:
         )
         data = data.reset_index()
         prices = self.DataframeParser(data[["Date", "Close"]])
+        temp_prices = prices.set_index("Date")
+        log_prices = np.log(temp_prices).reset_index()
         volume = self.DataframeParser(data[["Date", "Volume"]])
         returns = self.ReturnsParser(prices, "returns")
         log_returns = self.ReturnsParser(prices, "log_returns")
@@ -69,6 +72,7 @@ class ASXPipeline:
         
         
         prices.to_parquet(self.company_paths_dict["prices"], index=False, engine="pyarrow")
+        log_prices.to_parquet(self.company_paths_dict["log_prices"], index=False, engine="pyarrow")
         volume.to_parquet(self.company_paths_dict["volume"], index=False, engine="pyarrow")
         returns.to_parquet(self.company_paths_dict["returns"], index=False, engine="pyarrow")
         log_returns.to_parquet(self.company_paths_dict["log_returns"], index=False, engine="pyarrow")
@@ -166,4 +170,3 @@ class ASXPipeline:
                 f"Invalid file name {file_name}. Please choose from the following:", valid_keys
             ) from e    
     
-      
