@@ -324,28 +324,19 @@ class PairsTrading:
             self.z_score_dict[f"{company}_{partner}"] = Z
         
             
-    def AR_OLS(self, X: pd.DataFrame): 
-        X_curr = X[1:]
-        X_prev = X[:-1]
+
         
-        regression_model = LinearRegression()
-        regression_model.fit(X_prev.reshape(-1, 1), X_curr)
-        a_hat = regression_model.intercept_
-        phi_hat = regression_model.coef_[0]
         
-        mu_hat = a_hat / (1 - phi_hat)
-        kappa_hat = -np.log(phi_hat)
-        errors = X_curr - (a_hat + phi_hat * X_prev)
-        var_eps = np.var(errors, ddof=2)
-        sigma_hat = np.sqrt(var_eps * (2.0 * kappa_hat) / (1.0 - np.exp(-2.0 * kappa_hat)))
         
-        return mu_hat, kappa_hat, sigma_hat  
             
     def run(self): 
         companies_list = list(self.returns_df.columns[1:])
         for company in companies_list: 
             company_code = company.split(".")[0]
-            self.get_sector_df(company_code)
+            self.get_sector_df(company_code)    
+            
+            
+            
         self.get_pairs()
         print(self.similar_companies)
         self.run_cointegration_tests()
