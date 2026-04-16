@@ -166,7 +166,8 @@ class ASXPipeline:
             company_returns = returns_df[industry_companies_list]
             industry_returns = (weights * company_returns).sum(axis=1)
             industry_returns.index = market_cap_df["Date"]
-            industry_returns.name = industry            
+            industry_returns.name = industry
+            industry_returns.iloc[0] = np.nan     
             industry_return_dict[industry] = industry_returns
         industry_return_df = pd.DataFrame(industry_return_dict).reset_index()
         return industry_return_df

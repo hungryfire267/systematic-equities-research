@@ -194,9 +194,15 @@ class Reversal:
     def __init__(self, lower_percentile: float, upper_percentile: float, windows_list: list[int]): 
         self.returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/returns.parquet"))
         self.asx_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/asx/asx_returns.parquet"))
-        self.industry_dict = pd.read_csv(Path(rf"{PROJECT_ROOT}/data/asx_companies.csv")).set_index("asxCode")["industry"].to_dict()
+        self.industry_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/industry/industry_returns.parquet"))
+        self.industry_df = pd.read_csv(Path(rf"{PROJECT_ROOT}/data/asx_companies.csv"))
+        self.industry_df["code"] =  [str(code) + ".AX" for code in list(self.industry_df["asxCode"])]
+        self.industry_dict = self.industry_df.set_index("code")["industry"].to_dict()
+        self.total_days = self.returns_df.shape[0]
         self.lower = lower_percentile
         self.upper = upper_percentile
+        
+        self.rsr5_dict, self.rsr10_dict, self.rsr21_dict = dict(), dict(), dict()
         
         
     def get_Reversal(self): 
@@ -206,7 +212,27 @@ class Reversal:
             reversal_dict[w] = - cumulative_returns
             
     def get_RSR(self): 
-        print(self.returns_df.columns)
+        market_returns = self.asx_returns_df["^AXJO"]
+        company_list = list(self.returns_df.columns[1:])
+        for company in company_list: 
+            company_returns = self.returns_df[company]
+            industry = self.industry_dict[company]
+            industry_returns = self.industry_returns_df[industry]
+            total_returns = pd.concat([industry_returns, market_returns, company_returns], axis=1).dropna()
+            null_days = self.total_days - total_returns.shape[0]
+            y_returns = total_returns[company]
+            X_returns = total_returns.drop(columns=[company])
+            linear_model = LinearRegression().fit(X_returns, y_returns)
+            residuals = y_returns - linear_model.predict(X_returns)
+            residuals = residuals.reindex(range(0, residuals.index.max() + 1))
+            residuals = residuals.sort_index()
+            residuals.index = self.returns_df["Date"]
+            self.rsr5_dict[company] = - ((1 + residuals).rolling(window=5).apply(np.prod, raw=True) -1)
+            self.rsr10_dict[company] = - ((1 + residuals).rolling(window=10).apply(np.prod, raw=True) -1)
+            self.rsr21_dict[company] = - ((1 + residuals).rolling(window=21).apply(np.prod, raw=True) -1)
+        self.rsr5_df = pd.DataFrame(self.rsr5_dict).reset_index()
+        self.rsr10_df = pd.DataFrame(self.rsr10_dict).reset_index()
+        self.rsr21_df = pd.DataFrame(self.rsr21_dict).reset_index()
         
             
             
