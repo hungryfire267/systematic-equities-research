@@ -19,6 +19,9 @@ COMPANIES_DIR.mkdir(parents=True, exist_ok=True)
 ASX_DIR = RAW_DIR/"asx"
 ASX_DIR.mkdir(parents=True, exist_ok=True)
 
+INDUSTRY_DIR = RAW_DIR/"industry"
+INDUSTRY_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def get_companies_list(universe_path): 
     companies_df = pd.read_csv(universe_path)
@@ -43,8 +46,12 @@ class ASXPipeline:
             "returns": os.path.join(ASX_DIR, "asx_returns.parquet"), 
             "log_returns": os.path.join(ASX_DIR, "asx_log_returns.parquet")
         }
+        
+        self.industry_paths_dict = { 
+            "returns": os.path.join(INDUSTRY_DIR, "industry_returns.parquet")
+        }
     
-    def GetData(self, market_cap: pd.DataFrame | None) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]: 
+    def GetData(self, market_cap: pd.DataFrame | None, industry_returns: pd.DataFrame | None) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], dict[str, pd.DataFrame]]: 
         data = yf.download(
             self.company_codes, auto_adjust=True, start=self.start_date, end=self.end_date, progress=False
         )
@@ -55,6 +62,8 @@ class ASXPipeline:
         volume = self.DataframeParser(data[["Date", "Volume"]])
         returns = self.ReturnsParser(prices, "returns")
         log_returns = self.ReturnsParser(prices, "log_returns")
+        
+        
         
         
         asx_index = yf.download(
@@ -78,6 +87,12 @@ class ASXPipeline:
         log_returns.to_parquet(self.company_paths_dict["log_returns"], index=False, engine="pyarrow")
         market_cap.to_parquet(self.company_paths_dict["market_cap"], index=False, engine="pyarrow")
         
+        asx_prices.to_parquet(self.asx_paths_dict["index"], index=False, engine="pyarrow")
+        asx_returns.to_parquet(self.asx_paths_dict["returns"], index=False, engine="pyarrow")
+        asx_log_returns.to_parquet(self.asx_paths_dict["log_returns"], index=False, engine="pyarrow")
+        
+        industry_returns.to_parquet(self.industry_paths_dict["returns"], index=False, engine="pyarrow")
+        
         company_data_dict = {
             "prices": prices, "volume": volume, "returns": returns, "log_returns": log_returns, "market_cap": market_cap
         }
@@ -86,7 +101,11 @@ class ASXPipeline:
             "prices": asx_prices, "returns": asx_returns, "log_returns": asx_log_returns
         }
         
-        return company_data_dict, asx_data_dict
+        industry_data_dict = { 
+            "returns": industry_returns
+        }
+        
+        return company_data_dict, asx_data_dict, industry_data_dict
     
     
     def DataframeParser(self, df: pd.DataFrame) -> pd.DataFrame: 
@@ -140,20 +159,17 @@ class ASXPipeline:
         sector_list = companies_df["industry"].unique().tolist()
         industry_return_dict = {}
         for industry in sector_list: 
-            print(f"Processing industry: {industry}")
             industry_df = companies_df[companies_df["industry"] == industry]
             industry_companies_list = [str(company) + ".AX" for company in industry_df["asxCode"].unique().tolist()]
             industry_market_cap_df = market_cap_df[industry_companies_list]
             weights = industry_market_cap_df.div(industry_market_cap_df.sum(axis=1), axis=0)
             company_returns = returns_df[industry_companies_list]
             industry_returns = (weights * company_returns).sum(axis=1)
-            """         
-            date_series = pd.Series(pd.date_range(start=self.start_date, end=self.end_date), name="Date")
-            date_series = date_series[date_series.dt.dayofweek < 5]
-            industry_returns.index = date_series
-            """
+            industry_returns.index = market_cap_df["Date"]
+            industry_returns.name = industry            
             industry_return_dict[industry] = industry_returns
-            break
+        industry_return_df = pd.DataFrame(industry_return_dict).reset_index()
+        return industry_return_df
 
         
         
@@ -167,6 +183,6 @@ class ASXPipeline:
         except KeyError as e: 
             valid_keys = list(self.company_paths_dict.keys())
             raise KeyError(
-                f"Invalid file name {file_name}. Please choose from the following:", valid_keys
+                f"Invalid file name {file_name}. Please choose from the following:", valid_keysp
             ) from e    
     

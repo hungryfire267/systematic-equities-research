@@ -11,6 +11,8 @@ import statsmodels.api as sm
 
 UNIVERSE_PATH = Path("data/asx_companies.csv")
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 def percentile_check(lower_percentile: float, upper_percentile: float) -> None: 
     if not (0 <= lower_percentile < upper_percentile <= 100): 
         raise ValueError("Require 0 <= lower_percentile < upper_percentile <= 100") 
@@ -19,7 +21,7 @@ def percentile_check(lower_percentile: float, upper_percentile: float) -> None:
 
 class Kalman: 
     def __init__(self, a11, a12, a22, h1, h2, window, r2_window): 
-        self.log_prices_df = pd.read_parquet(Path(r"data/raw/companies/log_prices.parquet"))
+        self.log_prices_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}data/raw/companies/log_prices.parquet"))
         self.log_returns_df = pd.read_parquet(Path(r"data/raw/companies/log_returns.parquet"))
         
         if "Date" in list(self.log_prices_df.columns): 
@@ -165,8 +167,6 @@ class Kalman:
 class KalmanFilterBuilder: 
     def __init__(self, window: int): 
         self.window = window 
-        
-    def    
 
 
 
@@ -190,7 +190,27 @@ class Momentum:
         print(self.momentum_signal_df)
     
         
-         
+class Reversal: 
+    def __init__(self, lower_percentile: float, upper_percentile: float, windows_list: list[int]): 
+        self.returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/returns.parquet"))
+        self.asx_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/asx/asx_returns.parquet"))
+        self.industry_dict = pd.read_csv(Path(rf"{PROJECT_ROOT}/data/asx_companies.csv")).set_index("asxCode")["industry"].to_dict()
+        self.lower = lower_percentile
+        self.upper = upper_percentile
+        
+        
+    def get_Reversal(self): 
+        reversal_dict = dict()
+        for w in windows_list: 
+            cumulative_returns = (1 + self.returns_df.rolling(window=w).apply(np.prod, raw=True))- 1
+            reversal_dict[w] = - cumulative_returns
+            
+    def get_RSR(self): 
+        print(self.returns_df.columns)
+        
+            
+            
+              
         
         
         
@@ -397,7 +417,7 @@ class MeanVolatility:
 
         
 if __name__ == "__main__": 
-    print("hi")
-    pipeline = Kalman(a11=0.95, a12=0.05, a22=0.995, h1=1.0, h2=1.0, window=20).run_kalman_filter()
+    Reversal(0.25, 0.75, [5, 10, 21]).get_RSR()
+    # pipeline = Kalman(a11=0.95, a12=0.05, a22=0.995, h1=1.0, h2=1.0, window=20).run_kalman_filter()
     #pipeline.plot_kalman_comparison(["CBA.AX", "ZIP.AX"])
 
