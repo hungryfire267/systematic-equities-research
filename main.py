@@ -3,7 +3,6 @@ import pandas as pd
 from pathlib import Path
 
 from scripts.run_fetch import ASXPipeline
-from scripts.signals import MeanVolatility, Momentum, PairsTrading, Reversal
 
 UNIVERSE_PATH = Path("data/asx_companies.csv")
 
@@ -14,13 +13,12 @@ if __name__ == "__main__":
     start_date = end_date - dt.timedelta(days=1461)
 
     pipeline = ASXPipeline(companies_df, start_date, end_date)
-    market_cap = pipeline.GetMarketCap()
-    industry_returns = pipeline.getSectorReturns(pipeline.company_paths_dict["market_cap"], companies_df)
-    pipeline.GetData(market_cap, industry_returns)
+    #industry_returns = pipeline.getSectorReturns(None, companies_df)
+    pipeline.GetData(None, None)
     """pipeline.getSectorReturns(pipeline.company_paths_dict["market_cap"], companies_df)"""
     
     # Different script
     # pipeline = PairsTrading(60).run()
     # pipeline = Momentum(0.25, 0.75).get_Momentum()
     
-    Reversal(0.25, 0.75, [5, 10, 21])
+    # Reversal(0.25, 0.75, [5, 10, 21])

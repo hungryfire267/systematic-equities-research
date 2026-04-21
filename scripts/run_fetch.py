@@ -56,6 +56,7 @@ class ASXPipeline:
             self.company_codes, auto_adjust=True, start=self.start_date, end=self.end_date, progress=False
         )
         data = data.reset_index()
+        print(list(data.columns))
         prices = self.DataframeParser(data[["Date", "Close"]])
         temp_prices = prices.set_index("Date")
         log_prices = np.log(temp_prices).reset_index()
@@ -64,7 +65,7 @@ class ASXPipeline:
         log_returns = self.ReturnsParser(prices, "log_returns")
         
         
-        
+        print(self.get_EPS(prices))
         
         asx_index = yf.download(
             "^AXJO", auto_adjust=True, start=self.start_date, end=self.end_date, progress=False
@@ -171,8 +172,24 @@ class ASXPipeline:
             industry_return_dict[industry] = industry_returns
         industry_return_df = pd.DataFrame(industry_return_dict).reset_index()
         return industry_return_df
-
+    
+    def get_EPS(self, prices_df: pd.DataFrame) -> None: 
+        eps_dict = dict()
         
+        for company in self.company_codes: 
+            try: 
+                company_ticker = yf.Ticker(company)
+                bs = company_ticker.quarterly_balance_sheet.copy() 
+                eps = company_ticker.info.get("trailingEps")
+                print(eps)
+                eps_dict[company] = eps
+                
+            except Exception as e:
+                print(f"Failed for {company}: {e}")
+            break
+                
+                
+            
         
     
     def FetchData(self, file_name: str) -> pd.DataFrame | None: 
