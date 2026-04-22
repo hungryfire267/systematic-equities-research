@@ -236,8 +236,11 @@ class ASXPipeline:
                         fundamentals["Shares"] = fundamentals["Shares"].fillna(method="ffill")
                     
                 fundamentals["bvps"] = fundamentals["Equity"] / fundamentals["Shares"]
-                print(fundamentals)
-                print(prices_df["Date"])
+                ptb_df = pd.DataFrame({
+                    "Date": prices_df["Date"]
+                })
+                
+                print(ptb_df)
             except Exception as e:
                 print(f"Failed for {company}: {e}")
             break
