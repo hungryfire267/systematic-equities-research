@@ -174,8 +174,8 @@ class ASXPipeline:
         return industry_return_df
     
     def get_EPS(self, prices_df: pd.DataFrame) -> None: 
-        eps_dict = dict()
-        
+        ptb_dict = dict()
+        i = 0
         for company in self.company_codes: 
             try: 
                 company_ticker = yf.Ticker(company)
@@ -236,14 +236,38 @@ class ASXPipeline:
                         fundamentals["Shares"] = fundamentals["Shares"].fillna(method="ffill")
                     
                 fundamentals["bvps"] = fundamentals["Equity"] / fundamentals["Shares"]
+                fundamentals = fundamentals.sort_index(ascending=True)
+                print(fundamentals)
                 ptb_df = pd.DataFrame({
-                    "Date": prices_df["Date"]
+                    "Date": prices_df["Date"].copy(),
+                    "Price": prices_df[company].copy()
                 })
-                
+                fund_tmp = fundamentals.reset_index().rename(columns={"index": "Date"})
+                fund_tmp["Date"] = pd.to_datetime(fund_tmp["Date"])
+
+                ptb_df = ptb_df.sort_values("Date")
+                fund_tmp = fund_tmp.sort_values("Date")
+
+                ptb_df = pd.merge_asof(
+                    ptb_df,
+                    fund_tmp[["Date", "bvps"]],
+                    on="Date",
+                    direction="backward"
+                )
+
+                ptb_df[company] = ptb_df["Price"] / ptb_df["bvps"]
+                ptb_df = ptb_df[["Date", company]]
+                ptb_df = ptb_df.set_index("Date")
+                ptb_dict[company] = ptb_df[company]
                 print(ptb_df)
             except Exception as e:
                 print(f"Failed for {company}: {e}")
-            break
+            if i == 10: 
+                break 
+            i += 1
+            
+            ptb_final_df = pd.DataFrame(ptb_dict)
+            print(ptb_final_df)
                 
                 
             
