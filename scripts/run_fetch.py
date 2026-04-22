@@ -204,7 +204,7 @@ class ASXPipeline:
                 
                 date_first = prices_df["Date"].iloc[0]
                 date_last = prices_df["Date"].iloc[-1]
-                year_list = [] 
+
                 for year in range(date_first.year - 1, date_last.year + 2): 
                     dt_date = dt.datetime(year, 6, 30)
                     if date_first >= dt_date: 
@@ -213,7 +213,10 @@ class ASXPipeline:
                     if (date_last >= dt_date):
                         date_end = dt_date
                         print("Date End", date_end)
-                year_list = [dt.datetime(year, 6, 30) for ]
+                year_list = [
+                    dt.datetime(year, 6, 30) for year in range(date_start.year, date_end.year +1)
+                ]
+                print(year_list)
                 
                 
                 
