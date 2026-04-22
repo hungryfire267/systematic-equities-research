@@ -177,7 +177,6 @@ class ASXPipeline:
         eps_dict = dict()
         
         for company in self.company_codes: 
-            print(company)
             try: 
                 company_ticker = yf.Ticker(company)
                 bs_q = company_ticker.quarterly_balance_sheet.copy()
@@ -209,22 +208,36 @@ class ASXPipeline:
                     dt_date = dt.datetime(year, 6, 30)
                     if date_first >= dt_date: 
                         date_start = dt_date
-                        print("Date Start",date_start)
                     if (date_last >= dt_date):
                         date_end = dt_date
-                        print("Date End", date_end)
                 year_list = [
                     dt.datetime(year, 6, 30) for year in range(date_start.year, date_end.year +1)
                 ]
-                print(year_list)
                 
-                
-                
-                if dt.datetime(2021, 6, 30) not in fundamentals.columns: 
-                    new_row = pd.DataFrame()
-                print(fundamentals.index)
+                for dates in year_list: 
+                    dates_str = dates.strftime("%Y-%m-%d")
+                    if dates not in fundamentals.index: 
+                        date_df = pd.DataFrame({
+                            "Equity": [np.nan], 
+                            "Shares": [np.nan]
+                        })
+                        date_df.index = [pd.to_datetime(dates)]
+                        fundamentals = pd.concat([date_df, fundamentals], axis=0).sort_index(
+                            ascending=False
+                        )
+                    
+                    fundamentals = fundamentals.sort_index(ascending=False)
+                    
+                    equity_condition = pd.isna(fundamentals.loc[dates_str, "Equity"])
+                    shares_condition = pd.isna(fundamentals.loc[dates_str, "Shares"])
+                    
+                    if equity_condition and shares_condition: 
+                        fundamentals["Equity"] = fundamentals["Equity"].fillna(method="ffill")
+                        fundamentals["Shares"] = fundamentals["Shares"].fillna(method="ffill")
+                    
                 fundamentals["bvps"] = fundamentals["Equity"] / fundamentals["Shares"]
                 print(fundamentals)
+                print(prices_df["Date"])
             except Exception as e:
                 print(f"Failed for {company}: {e}")
             break
