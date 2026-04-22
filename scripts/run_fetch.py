@@ -177,13 +177,51 @@ class ASXPipeline:
         eps_dict = dict()
         
         for company in self.company_codes: 
+            print(company)
             try: 
                 company_ticker = yf.Ticker(company)
-                bs = company_ticker.quarterly_balance_sheet.copy() 
-                eps = company_ticker.info.get("trailingEps")
-                print(eps)
-                eps_dict[company] = eps
+                bs_q = company_ticker.quarterly_balance_sheet.copy()
+                bs_a = company_ticker.balance_sheet.copy() 
+                bs = bs_q if not bs_q.empty and bs_q.shape[1] >= 4 else bs_a
+                if "Common Stock" in list(bs.index): 
+                    equity = bs.loc["Common Stock"]
+                elif "Total Stockholder Equity":
+                    equity = bs.loc["Total Stockholder Equity"]
+                elif "Total Equity Gross Minority Interest" in list(bs.index): 
+                    minority = None 
+                    if "Minority Interest" in list(bs.index):
+                        minority = bs.loc["Minority Interest"].fillna(0)
+                    else: 
+                        minority = 0 
+                    equity = bs.loc["Total Equity Gross Minority Interest"] - minority
+                else: 
+                    equity = None
+                shares = bs.loc["Ordinary Shares Number"]
+                fundamentals = pd.DataFrame({ 
+                    "Equity": equity,
+                    "Shares": shares
+                })
                 
+                date_first = prices_df["Date"].iloc[0]
+                date_last = prices_df["Date"].iloc[-1]
+                year_list = [] 
+                for year in range(date_first.year - 1, date_last.year + 2): 
+                    dt_date = dt.datetime(year, 6, 30)
+                    if date_first >= dt_date: 
+                        date_start = dt_date
+                        print("Date Start",date_start)
+                    if (date_last >= dt_date):
+                        date_end = dt_date
+                        print("Date End", date_end)
+                year_list = [dt.datetime(year, 6, 30) for ]
+                
+                
+                
+                if dt.datetime(2021, 6, 30) not in fundamentals.columns: 
+                    new_row = pd.DataFrame()
+                print(fundamentals.index)
+                fundamentals["bvps"] = fundamentals["Equity"] / fundamentals["Shares"]
+                print(fundamentals)
             except Exception as e:
                 print(f"Failed for {company}: {e}")
             break
@@ -201,6 +239,6 @@ class ASXPipeline:
         except KeyError as e: 
             valid_keys = list(self.company_paths_dict.keys())
             raise KeyError(
-                f"Invalid file name {file_name}. Please choose from the following:", valid_keysp
+                f"Invalid file name {file_name}. Please choose from the following:", valid_keys
             ) from e    
     
