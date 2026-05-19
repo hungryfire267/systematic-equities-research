@@ -56,7 +56,6 @@ class ASXPipeline:
             self.company_codes, auto_adjust=True, start=self.start_date, end=self.end_date, progress=False
         )
         data = data.reset_index()
-        print(list(data.columns))
         prices = self.DataframeParser(data[["Date", "Close"]])
         temp_prices = prices.set_index("Date")
         log_prices = np.log(temp_prices).reset_index()
@@ -64,8 +63,7 @@ class ASXPipeline:
         returns = self.ReturnsParser(prices, "returns")
         log_returns = self.ReturnsParser(prices, "log_returns")
         
-        
-        print(self.get_EPS(prices))
+        self.get_fundamental_metrics(prices, market_cap)
         
         asx_index = yf.download(
             "^AXJO", auto_adjust=True, start=self.start_date, end=self.end_date, progress=False
@@ -173,105 +171,273 @@ class ASXPipeline:
         industry_return_df = pd.DataFrame(industry_return_dict).reset_index()
         return industry_return_df
     
-    def get_EPS(self, prices_df: pd.DataFrame) -> None: 
-        ptb_dict = dict()
-        i = 0
+    def get_equity(self, bs: pd.DataFrame) -> pd.Series | None:
+        if "Total Stockholder Equity" in list(bs.index):
+            equity = bs.loc["Total Stockholder Equity"]
+        elif "Total Equity Gross Minority Interest" in list(bs.index):
+            minority = bs.loc["Minority Interest"].fillna(0) if "Minority Interest" in bs.index else 0
+            equity = bs.loc["Total Equity Gross Minority Interest"] - minority
+        elif "Common Stock" in list(bs.index): 
+            equity = bs.loc["Common Stock"]
+        else: 
+            equity = None
+        return equity
+    
+    def get_assets(self, bs: pd.DataFrame, equity: pd.Series) -> pd.Series | None: 
+        if "Total Assets" in list(bs.index): 
+            assets = bs.loc["Total Assets"]
+        elif "Total Liabilities Net Minority Interest" in list(bs.index): 
+            liabilities = bs.loc["Total Liabilities Net Minority Interest"].fillna(0)
+            assets = equity + liabilities  
+        else: 
+            assets = None
+        return assets
+    
+    def get_income(self, income_stmt: pd.DataFrame) -> pd.Series | None:
+        if "Net Income" in list(income_stmt.index): 
+            net_income = income_stmt.loc["Net Income"]
+        else: 
+            net_income = None
+        return net_income
+    
+    def get_fundamentals(self, prices_df: pd.DataFrame) -> None: 
+        company_fundamentals_dict = dict() 
         for company in self.company_codes: 
             try: 
                 company_ticker = yf.Ticker(company)
-                bs_q = company_ticker.quarterly_balance_sheet.copy()
-                bs_a = company_ticker.balance_sheet.copy() 
-                bs = bs_q if not bs_q.empty and bs_q.shape[1] >= 4 else bs_a
-                if "Common Stock" in list(bs.index): 
-                    equity = bs.loc["Common Stock"]
-                elif "Total Stockholder Equity":
-                    equity = bs.loc["Total Stockholder Equity"]
-                elif "Total Equity Gross Minority Interest" in list(bs.index): 
-                    minority = None 
-                    if "Minority Interest" in list(bs.index):
-                        minority = bs.loc["Minority Interest"].fillna(0)
-                    else: 
-                        minority = 0 
-                    equity = bs.loc["Total Equity Gross Minority Interest"] - minority
-                else: 
-                    equity = None
+                bs = company_ticker.balance_sheet.copy()
+                income_stmt = company_ticker.income_stmt.copy() 
+                
                 shares = bs.loc["Ordinary Shares Number"]
-                fundamentals = pd.DataFrame({ 
-                    "Equity": equity,
-                    "Shares": shares
+                
+                net_income = self.get_income(income_stmt)
+                equity = self.get_equity(bs)
+                assets = self.get_assets(bs, equity)
+                
+                
+                fundamentals = pd.DataFrame({
+                    "Shares": shares,
+                    "Equity": equity, 
+                    "Assets": assets, 
+                    "Net Income": net_income
                 })
                 
-                date_first = prices_df["Date"].iloc[0]
-                date_last = prices_df["Date"].iloc[-1]
-
-                for year in range(date_first.year - 1, date_last.year + 2): 
-                    dt_date = dt.datetime(year, 6, 30)
-                    if date_first >= dt_date: 
-                        date_start = dt_date
-                    if (date_last >= dt_date):
-                        date_end = dt_date
-                year_list = [
-                    dt.datetime(year, 6, 30) for year in range(date_start.year, date_end.year +1)
-                ]
+                for key in fundamentals.keys(): 
+                    fundamentals[key] = fundamentals[key].fillna(method="ffill")
                 
-                for dates in year_list: 
-                    dates_str = dates.strftime("%Y-%m-%d")
-                    if dates not in fundamentals.index: 
-                        date_df = pd.DataFrame({
-                            "Equity": [np.nan], 
-                            "Shares": [np.nan]
-                        })
-                        date_df.index = [pd.to_datetime(dates)]
-                        fundamentals = pd.concat([date_df, fundamentals], axis=0).sort_index(
-                            ascending=False
-                        )
-                    
-                    fundamentals = fundamentals.sort_index(ascending=False)
-                    
-                    equity_condition = pd.isna(fundamentals.loc[dates_str, "Equity"])
-                    shares_condition = pd.isna(fundamentals.loc[dates_str, "Shares"])
-                    
-                    if equity_condition and shares_condition: 
-                        fundamentals["Equity"] = fundamentals["Equity"].fillna(method="ffill")
-                        fundamentals["Shares"] = fundamentals["Shares"].fillna(method="ffill")
-                    
-                fundamentals["bvps"] = fundamentals["Equity"] / fundamentals["Shares"]
-                fundamentals = fundamentals.sort_index(ascending=True)
-                print(fundamentals)
-                ptb_df = pd.DataFrame({
+                roa = net_income / assets
+                roe = net_income / equity
+                
+                fundamentals["ROA"] = roa
+                fundamentals["ROE"] = roe
+            
+            company_fundamentals_dict[company] = fundamentals
+            break
+        return company_fundamentals_dict
+    
+    def get_ptb(self, prices_df: pd.DataFrame) -> None: 
+        ptb_dict = dict()
+        for company in self.company_codes: 
+            fundamentals = self.fundamentals_dict[company].copy()
+            fundamentals = fundamentals.sort_index(ascending=False)
+            
+            ptb_df = pd.DataFrame({
                     "Date": prices_df["Date"].copy(),
                     "Price": prices_df[company].copy()
-                })
-                fund_tmp = fundamentals.reset_index().rename(columns={"index": "Date"})
-                fund_tmp["Date"] = pd.to_datetime(fund_tmp["Date"])
+            })
+            
+            fund_tmp = fundamentals.reset_index().rename(columns={"index": "Date"})
+            fund_tmp["Date"] = pd.to_datetime(fund_tmp["Date"])
+            
+            ptb_df = ptb_df.sort_values("Date")
+            fund_tmp = fund_tmp.sort_values("Date")
 
-                ptb_df = ptb_df.sort_values("Date")
-                fund_tmp = fund_tmp.sort_values("Date")
+            ptb_df = pd.merge_asof(
+                ptb_df,
+                fund_tmp[["Date", "bvps"]],
+                on="Date",
+                direction="backward"
+            )
+            
+            na_condition = ptb_df["Price"].isna()
+            ptb_df.loc[na_condition, "bvps"] = np.nan
 
-                ptb_df = pd.merge_asof(
-                    ptb_df,
-                    fund_tmp[["Date", "bvps"]],
+            ptb_df[company] = ptb_df["Price"] / ptb_df["bvps"]
+            ptb_df = ptb_df[["Date", company]]
+            ptb_df = ptb_df.set_index("Date")
+            ptb_dict[company] = ptb_df[company]
+            
+        ptb_final_df = pd.DataFrame(ptb_dict)
+        
+        return ptb_final_df
+                
+                
+    def get_dividend_yield(self, prices_df: pd.DataFrame) -> None: 
+        dividend_yield_dict = dict()
+        
+        earliest = prices_df["Date"].min()
+        latest = prices_df["Date"].max() 
+        
+        zero_dividend_companies = []
+        i = 0        
+        for company in self.company_codes: 
+            ptd_df = pd.DataFrame({
+                "Date": prices_df["Date"].copy(), 
+                "Price": prices_df[company].copy()
+            })
+            try: 
+                ticker = yf.Ticker(company)
+                dividends = ticker.dividends
+                dividends.index = pd.to_datetime(dividends.index).tz_localize(None)
+
+                dividends = dividends.reset_index().sort_index(ascending=True)
+                earliest_date = dividends.loc[dividends["Date"] < earliest, "Date"].max()
+                dividends_filtered = dividends[dividends["Date"] >= earliest_date].reset_index(drop=True)
+                
+                
+                ptd_df = pd.merge_asof(
+                    ptd_df,
+                    dividends_filtered[["Date", "Dividends"]],
                     on="Date",
                     direction="backward"
                 )
+                
+                div_events = (
+                    dividends.set_index("Date")["Dividends"].sort_index()
+                )
 
-                ptb_df[company] = ptb_df["Price"] / ptb_df["bvps"]
-                ptb_df = ptb_df[["Date", company]]
-                ptb_df = ptb_df.set_index("Date")
-                ptb_dict[company] = ptb_df[company]
-                print(ptb_df)
-            except Exception as e:
-                print(f"Failed for {company}: {e}")
-            if i == 10: 
-                break 
-            i += 1
-            
-            ptb_final_df = pd.DataFrame(ptb_dict)
-            print(ptb_final_df)
+                calendar = pd.date_range(
+                    start=min(div_events.index.min(), ptd_df["Date"].min()),
+                    end=ptd_df["Date"].max(),
+                    freq="D"
+                )
+                
+                div_daily = div_events.reindex(calendar, fill_value=0)
+                
+                trailing_div = div_daily.rolling("365D").sum()
+                
+                ptd_df["trailing_annual_dividend"] = (
+                    trailing_div
+                    .reindex(ptd_df["Date"])
+                    .to_numpy()
+                )
+
+                ptd_df["trailing_dividend_yield"] = (
+                    ptd_df["trailing_annual_dividend"] / ptd_df["Price"]
+                )
+
+                ptd_df[company] = (
+                    100 * ptd_df["trailing_dividend_yield"]
+                )
                 
                 
+            except Exception as e: 
+                zero_dividend_companies.append(company)
+                
+                print(f"Failed to fetch dividend yield for {company}")
+                ptd_df[company] = 0.0
+                
             
+            ptd_df = ptd_df[["Date", company]]
+            ptd_df = ptd_df.set_index("Date")
+            dividend_yield_dict[company] = ptd_df[company]
+            
+        ptd_final_df = pd.DataFrame(dividend_yield_dict)
         
+        return ptd_final_df
+        
+    def get_earnings_yield(self, market_cap_df: pd.DataFrame) -> dict:
+        earnings_yield_dict = dict()
+        for company in self.company_codes:
+            fundamentals_company = self.fundamentals_dict[company].copy()
+            net_income_tmp = fundamentals_company["Net Income"]
+            net_income_tmp = net_income_tmp.reset_index().rename(columns={"index": "Date"})
+            net_income_tmp["Date"] = pd.to_datetime(net_income_tmp["Date"])
+            
+            earning_yields_df = pd.DataFrame({
+                "Date": market_cap_df["Date"].copy(),
+                "Market Cap": market_cap_df[company].copy()
+            })
+            
+            net_income_tmp = net_income_tmp.sort_values("Date") 
+            earning_yields_df = earning_yields_df.sort_values("Date")
+            
+            earning_yields_df = pd.merge_asof(
+                earning_yields_df,
+                net_income_tmp[["Date", "Net Income"]],
+                on="Date",
+                direction="backward"
+            )
+            
+            earning_yields_df[company] = earning_yields_df["Net Income"] / earning_yields_df["Market Cap"]
+            earning_yields_df = earning_yields_df[["Date", company]]
+            earning_yields_df = earning_yields_df.set_index("Date")
+            earnings_yield_dict[company] = earning_yields_df[company]
+        
+        earnings_yield_df = pd.DataFrame(earnings_yield_dict)
+        return earnings_yield_df
+    
+    def get_ROA_ROE(self, prices_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]: 
+        roa_dict, roe_dict = dict(), dict()
+        
+        for company in self.company_codes: 
+            fundamentals_company = self.fundamentals_dict[company].copy()
+            roa_roe_tmp_df = fundamentals_company[["Net Income", "Equity", "Assets"]].copy()
+            
+            roa_tmp_df = roa_roe_tmp_df[["Net Income", "Assets"]].copy()
+            roa_tmp_df = roa_tmp_df.reset_index().rename(columns={"index": "Date"})
+            roa_tmp_df["Date"] = pd.to_datetime(roa_tmp_df["Date"])
+            roa_tmp_df = roa_tmp_df.sort_values("Date")
+            
+            
+            roe_tmp_df = roa_roe_tmp_df[["Net Income", "Equity"]].copy() 
+            roe_tmp_df = roe_tmp_df.reset_index().rename(columns={"index": "Date"})
+            roe_tmp_df["Date"] = pd.to_datetime(roe_tmp_df["Date"])
+            roe_tmp_df = roe_tmp_df.sort_values("Date")
+            
+            roa_roe_df = pd.DataFrame({
+                "Date": prices_df["Date"].copy(), 
+            })
+            
+            roa_df = pd.merge_asof(
+                roa_roe_df, 
+                roa_tmp_df,
+                on="Date", 
+                direction="backward"
+            )
+            
+            roe_df = pd.merge_asof(
+                roa_roe_df,
+                roe_tmp_df,
+                on="Date",
+                direction="backward"
+            )
+            
+            roa_df[company] = roa_df["Net Income"] / roa_df["Assets"]
+            roa_df = roa_df[["Date", company]]
+            roa_df = roa_df.set_index("Date")
+            roa_dict[company] = roa_df[company]
+            
+            roe_df[company] = roe_df["Net Income"] / roe_df["Equity"]
+            roe_df = roe_df[["Date", company]]
+            roe_df = roe_df.set_index("Date")
+            roe_dict[company] = roe_df[company]
+        
+        roa_final_df = pd.DataFrame(roa_dict)
+        roe_final_df = pd.DataFrame(roe_dict)
+        
+        print(roa_final_df)
+        
+        print(roe_final_df)
+        
+        return roa_final_df, roe_final_df
+    
+    def get_fundamental_metrics(self, prices_df: pd.DataFrame, market_cap_df: pd.DataFrame) -> None:
+        self.fundamentals_dict = self.get_fundamentals(prices_df)
+        self.ptb_df = self.get_ptb(prices_df)
+        self.dividend_yield_df = self.get_dividend_yield(prices_df)
+        self.earnings_yield_df = self.get_earnings_yield(market_cap_df)
+        self.roa_df, self.roe_df = self.get_ROA_ROE(prices_df)
     
     def FetchData(self, file_name: str) -> pd.DataFrame | None: 
         try: 
@@ -284,4 +450,3 @@ class ASXPipeline:
             raise KeyError(
                 f"Invalid file name {file_name}. Please choose from the following:", valid_keys
             ) from e    
-    

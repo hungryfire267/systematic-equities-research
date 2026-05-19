@@ -14,7 +14,8 @@ if __name__ == "__main__":
 
     pipeline = ASXPipeline(companies_df, start_date, end_date)
     #industry_returns = pipeline.getSectorReturns(None, companies_df)
-    pipeline.GetData(None, None)
+    market_cap = pipeline.GetMarketCap()
+    pipeline.GetData(market_cap, None)
     """pipeline.getSectorReturns(pipeline.company_paths_dict["market_cap"], companies_df)"""
     
     # Different script
