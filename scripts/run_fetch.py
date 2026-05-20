@@ -22,6 +22,9 @@ ASX_DIR.mkdir(parents=True, exist_ok=True)
 INDUSTRY_DIR = RAW_DIR/"industry"
 INDUSTRY_DIR.mkdir(parents=True, exist_ok=True)
 
+FUNDAMENTALS_DIR = RAW_DIR/"fundamentals"
+FUNDAMENTALS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def get_companies_list(universe_path): 
     companies_df = pd.read_csv(universe_path)
@@ -50,47 +53,46 @@ class ASXPipeline:
         self.industry_paths_dict = { 
             "returns": os.path.join(INDUSTRY_DIR, "industry_returns.parquet")
         }
+        
+        self.fundamentals_paths_dict = { 
+            "price_to_book": os.path.join(FUNDAMENTALS_DIR, "price_to_book.parquet"),
+            "earnings_yield": os.path.join(FUNDAMENTALS_DIR, "earnings_yield.parquet"),
+            "dividend_yield": os.path.join(FUNDAMENTALS_DIR, "dividend_yield.parquet"),
+            "ROA": os.path.join(FUNDAMENTALS_DIR, "ROA.parquet"),
+            "ROE": os.path.join(FUNDAMENTALS_DIR, "ROE.parquet")
+        }
     
     def GetData(self, market_cap: pd.DataFrame | None, industry_returns: pd.DataFrame | None) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], dict[str, pd.DataFrame]]: 
         data = yf.download(
             self.company_codes, auto_adjust=True, start=self.start_date, end=self.end_date, progress=False
         )
         data = data.reset_index()
-        prices = self.DataframeParser(data[["Date", "Close"]])
-        temp_prices = prices.set_index("Date")
-        log_prices = np.log(temp_prices).reset_index()
-        volume = self.DataframeParser(data[["Date", "Volume"]])
-        returns = self.ReturnsParser(prices, "returns")
-        log_returns = self.ReturnsParser(prices, "log_returns")
+        self.prices = self.DataframeParser(data[["Date", "Close"]])
+        temp_prices = self.prices.set_index("Date")
+        self.log_prices = np.log(temp_prices).reset_index()
+        self.volume = self.DataframeParser(data[["Date", "Volume"]])
+        self.returns = self.ReturnsParser(self.prices, "returns")
+        self.log_returns = self.ReturnsParser(self.prices, "log_returns")
         
-        self.get_fundamental_metrics(prices, market_cap)
+        if market_cap is not None: 
+            self.market_cap = market_cap
+        
         
         asx_index = yf.download(
             "^AXJO", auto_adjust=True, start=self.start_date, end=self.end_date, progress=False
         )
         asx_index = asx_index.reset_index() 
-        asx_prices = self.DataframeParser(asx_index[["Date", "Close"]])
-        asx_returns = self.ReturnsParser(asx_prices, "returns")
-        asx_log_returns = self.ReturnsParser(asx_prices, "log_returns")
         
-        date_condition_one = prices["Date"] >= dt.datetime(2026, 1, 11)
-        date_condition_two = prices["Date"] <= dt.datetime(2026, 1, 25)
-        print(asx_returns.loc[(date_condition_one) & (date_condition_two), :])
-        print(asx_log_returns.loc[(date_condition_one) & (date_condition_two), :])
-        
-        
-        prices.to_parquet(self.company_paths_dict["prices"], index=False, engine="pyarrow")
-        log_prices.to_parquet(self.company_paths_dict["log_prices"], index=False, engine="pyarrow")
-        volume.to_parquet(self.company_paths_dict["volume"], index=False, engine="pyarrow")
-        returns.to_parquet(self.company_paths_dict["returns"], index=False, engine="pyarrow")
-        log_returns.to_parquet(self.company_paths_dict["log_returns"], index=False, engine="pyarrow")
-        market_cap.to_parquet(self.company_paths_dict["market_cap"], index=False, engine="pyarrow")
-        
-        asx_prices.to_parquet(self.asx_paths_dict["index"], index=False, engine="pyarrow")
-        asx_returns.to_parquet(self.asx_paths_dict["returns"], index=False, engine="pyarrow")
-        asx_log_returns.to_parquet(self.asx_paths_dict["log_returns"], index=False, engine="pyarrow")
-        
+        self.asx_prices = self.DataframeParser(asx_index[["Date", "Close"]])
+        self.asx_returns = self.ReturnsParser(self.asx_prices, "returns")
+        self.asx_log_returns = self.ReturnsParser(self.asx_prices, "log_returns")    
+    
+        self.get_fundamental_metrics(self.prices, market_cap)
         industry_returns.to_parquet(self.industry_paths_dict["returns"], index=False, engine="pyarrow")
+        
+        self.industry_export_to_parquet()
+        self.fundamentals_export_to_parquet()
+        
         
         company_data_dict = {
             "prices": prices, "volume": volume, "returns": returns, "log_returns": log_returns, "market_cap": market_cap
@@ -104,7 +106,77 @@ class ASXPipeline:
             "returns": industry_returns
         }
         
+        company_data_dict, asx_data_dict, industry_data_dict, fundamentals_data_dict = self.store_file_dict()
+        
         return company_data_dict, asx_data_dict, industry_data_dict
+    
+    def company_export_to_parquet(self): 
+        self.prices.to_parquet(self.company_paths_dict["prices"], index=False, engine="pyarrow")
+        self.log_prices.to_parquet(self.company_paths_dict["log_prices"], index=False, engine="pyarrow")
+        self.volume.to_parquet(self.company_paths_dict["volume"], index=False, engine="pyarrow")
+        self.returns.to_parquet(self.company_paths_dict["returns"], index=False, engine="pyarrow")
+        self.log_returns.to_parquet(self.company_paths_dict["log_returns"], index=False, engine="pyarrow")
+        self.market_cap.to_parquet(self.company_paths_dict["market_cap"], index=False, engine="pyarrow")
+        
+    
+    
+    def asx_export_to_parquet(self): 
+        self.asx_prices.to_parquet(self.asx_paths_dict["index"], index=False, engine="pyarrow")
+        self.asx_returns.to_parquet(self.asx_paths_dict["returns"], index=False, engine="pyarrow")
+        self.asx_log_returns.to_parquet(self.asx_paths_dict["log_returns"], index=False, engine="pyarrow")
+    
+    
+    
+    def industry_export_to_parquet(self):
+        pass
+    
+    def fundamentals_export_to_parquet(self): 
+        self.ptb_df.to_parquet(
+            self.fundamentals_paths_dict["price_to_book"], index=False, engine="pyarrow"
+        )
+        
+        self.earnings_yield_df.to_parquet(
+            self.fundamentals_paths_dict["earnings_yield"], index=False, engine="pyarrow"
+        )
+        self.dividend_yield_df.to_parquet(
+            self.fundamentals_paths_dict["dividend"], index=False, engine="pyarrow"
+        )
+        self.roa_df.to_parquet(
+            self.fundamentals_paths_dict["ROA"], index=False, engine="pyarrow"
+        )
+        self.roe_df.to_parquet(
+            self.fundamentals_paths_dict["ROE"], index=False, engine="pyarrow" 
+        )
+    
+    def store_file_dict(self) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], dict[str, pd.DataFrame], dict[str, pd.DataFrame]]: 
+        company_data_dict = {
+            "prices": self.prices, 
+            "volume": self.volume, 
+            "returns": self.returns, 
+            "log_returns": self.log_returns, 
+            "market_cap": self.market_cap
+        }
+        
+        asx_data_dict = { 
+            "prices": self.asx_prices, 
+            "returns": self.asx_returns, 
+            "log_returns": self.asx_log_returns            
+        }
+        
+        industry_data_dict = { 
+            "returns": self.industry_returns
+        }
+        
+        fundamentals_data_dict = {
+            "price_to_book": self.ptb_df,
+            "earnings_yield": self.earnings_yield_df,
+            "dividend_yield": self.dividend_yield_df,
+            "ROA": self.roa_df,
+            "ROE": self.roe_df
+        }
+    
+        return company_data_dict, asx_data_dict, industry_data_dict, fundamentals_data_dict
+    
     
     
     def DataframeParser(self, df: pd.DataFrame) -> pd.DataFrame: 

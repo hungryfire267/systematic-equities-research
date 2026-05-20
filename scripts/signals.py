@@ -17,7 +17,9 @@
         if not (0 <= lower_percentile < upper_percentile <= 100): 
             raise ValueError("Require 0 <= lower_percentile < upper_percentile <= 100") 
 
-
+    class Fundamentals: 
+        def __init__(self, lower_percentile:): 
+            self.earnings_yield_df = pd.read_parquet(r"data/raw")
 
     class Kalman: 
         def __init__(self, a11, a12, a22, h1, h2, window, r2_window): 
