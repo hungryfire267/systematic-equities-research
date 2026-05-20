@@ -18,8 +18,24 @@
             raise ValueError("Require 0 <= lower_percentile < upper_percentile <= 100") 
 
     class Fundamentals: 
-        def __init__(self, lower_percentile:): 
-            self.earnings_yield_df = pd.read_parquet(r"data/raw")
+        def __init__(self): 
+            self.ptb_df = pd.read_parquet(r"data/raw/fundamentals/ptb.parquet")
+            self.dividend_yield_df = pd.read_parquet(r"data/raw/fundamentals/dividend_yield.parquet")
+            self.earnings_yield_df = pd.read_parquet(r"data/raw/fundamentals/earnings_yield.parquet")
+            self.roa_df = pd.read_parquet(r"data/raw/fundamentals/roa.parquet")
+            self.roe_df = pd.read_parquet(r"data/raw/fundamentals/roe.parquet")
+            
+            self.ranking_config = { 
+                "ptb": False,
+                "dividend_yield": True, 
+                "earnings_yield": True, 
+                "roa": True,
+                "roe": True           
+            }
+            
+        def earnings_yield_signal(self): 
+            pass
+            
 
     class Kalman: 
         def __init__(self, a11, a12, a22, h1, h2, window, r2_window): 

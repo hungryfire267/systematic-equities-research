@@ -88,27 +88,20 @@ class ASXPipeline:
         self.asx_log_returns = self.ReturnsParser(self.asx_prices, "log_returns")    
     
         self.get_fundamental_metrics(self.prices, market_cap)
+        
+        if industry_returns is not None:
+            self.industry_returns = industry_returns
+        
         industry_returns.to_parquet(self.industry_paths_dict["returns"], index=False, engine="pyarrow")
+        
         
         self.industry_export_to_parquet()
         self.fundamentals_export_to_parquet()
         
         
-        company_data_dict = {
-            "prices": prices, "volume": volume, "returns": returns, "log_returns": log_returns, "market_cap": market_cap
-        }
-        
-        asx_data_dict = { 
-            "prices": asx_prices, "returns": asx_returns, "log_returns": asx_log_returns
-        }
-        
-        industry_data_dict = { 
-            "returns": industry_returns
-        }
-        
         company_data_dict, asx_data_dict, industry_data_dict, fundamentals_data_dict = self.store_file_dict()
         
-        return company_data_dict, asx_data_dict, industry_data_dict
+        return company_data_dict, asx_data_dict, industry_data_dict, fundamentals_data_dict
     
     def company_export_to_parquet(self): 
         self.prices.to_parquet(self.company_paths_dict["prices"], index=False, engine="pyarrow")
@@ -128,7 +121,7 @@ class ASXPipeline:
     
     
     def industry_export_to_parquet(self):
-        pass
+        self.industry_returns.to_parquet(self.industry_paths_dict["returns"], index=False, engine="pyarrow")
     
     def fundamentals_export_to_parquet(self): 
         self.ptb_df.to_parquet(
@@ -274,37 +267,35 @@ class ASXPipeline:
     
     def get_fundamentals(self, prices_df: pd.DataFrame) -> None: 
         company_fundamentals_dict = dict() 
-        for company in self.company_codes: 
-            try: 
-                company_ticker = yf.Ticker(company)
-                bs = company_ticker.balance_sheet.copy()
-                income_stmt = company_ticker.income_stmt.copy() 
-                
-                shares = bs.loc["Ordinary Shares Number"]
-                
-                net_income = self.get_income(income_stmt)
-                equity = self.get_equity(bs)
-                assets = self.get_assets(bs, equity)
-                
-                
-                fundamentals = pd.DataFrame({
-                    "Shares": shares,
-                    "Equity": equity, 
-                    "Assets": assets, 
-                    "Net Income": net_income
-                })
-                
-                for key in fundamentals.keys(): 
-                    fundamentals[key] = fundamentals[key].fillna(method="ffill")
-                
-                roa = net_income / assets
-                roe = net_income / equity
-                
-                fundamentals["ROA"] = roa
-                fundamentals["ROE"] = roe
+        for company in self.company_codes:  
+            company_ticker = yf.Ticker(company)
+            bs = company_ticker.balance_sheet.copy()
+            income_stmt = company_ticker.income_stmt.copy() 
+            
+            shares = bs.loc["Ordinary Shares Number"]
+            
+            net_income = self.get_income(income_stmt)
+            equity = self.get_equity(bs)
+            assets = self.get_assets(bs, equity)
+            
+            
+            fundamentals = pd.DataFrame({
+                "Shares": shares,
+                "Equity": equity, 
+                "Assets": assets, 
+                "Net Income": net_income
+            })
+            
+            for key in fundamentals.keys(): 
+                fundamentals[key] = fundamentals[key].fillna(method="ffill")
+            
+            roa = net_income / assets
+            roe = net_income / equity
+            
+            fundamentals["ROA"] = roa
+            fundamentals["ROE"] = roe
             
             company_fundamentals_dict[company] = fundamentals
-            break
         return company_fundamentals_dict
     
     def get_ptb(self, prices_df: pd.DataFrame) -> None: 
