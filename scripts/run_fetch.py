@@ -5,6 +5,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pandas as pd
+from tqdm import tqdm
+
 import yfinance as yf
 
 
@@ -35,6 +37,7 @@ class ASXPipeline:
     def __init__(self, companies_df, start_date, end_date): 
         self.start_date = start_date
         self.end_date = end_date
+        self.companies_df = companies_df
         self.company_codes = [str(company) + ".AX" for company in companies_df["asxCode"].tolist()]
         self.company_paths_dict = {   
             "prices": os.path.join(COMPANIES_DIR, "prices.parquet"),
@@ -62,7 +65,7 @@ class ASXPipeline:
             "ROE": os.path.join(FUNDAMENTALS_DIR, "ROE.parquet")
         }
     
-    def GetData(self, market_cap: pd.DataFrame | None, industry_returns: pd.DataFrame | None) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], dict[str, pd.DataFrame]]: 
+    def GetData(self, market_cap: pd.DataFrame | None) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], dict[str, pd.DataFrame]]: 
         data = yf.download(
             self.company_codes, auto_adjust=True, start=self.start_date, end=self.end_date, progress=False
         )
@@ -88,13 +91,10 @@ class ASXPipeline:
         self.asx_log_returns = self.ReturnsParser(self.asx_prices, "log_returns")    
     
         self.get_fundamental_metrics(self.prices, market_cap)
+        self.industry_returns = self.getSectorReturns(self.companies_df)
         
-        if industry_returns is not None:
-            self.industry_returns = industry_returns
-        
-        industry_returns.to_parquet(self.industry_paths_dict["returns"], index=False, engine="pyarrow")
-        
-        
+        self.company_export_to_parquet()
+        self.asx_export_to_parquet()
         self.industry_export_to_parquet()
         self.fundamentals_export_to_parquet()
         
@@ -132,7 +132,7 @@ class ASXPipeline:
             self.fundamentals_paths_dict["earnings_yield"], index=False, engine="pyarrow"
         )
         self.dividend_yield_df.to_parquet(
-            self.fundamentals_paths_dict["dividend"], index=False, engine="pyarrow"
+            self.fundamentals_paths_dict["dividend_yield"], index=False, engine="pyarrow"
         )
         self.roa_df.to_parquet(
             self.fundamentals_paths_dict["ROA"], index=False, engine="pyarrow"
@@ -197,9 +197,9 @@ class ASXPipeline:
     
     
     def GetMarketCap(self): 
+        print("Retrieving market cap data ...")
         market_list = [] 
-        i = 1
-        for company in self.company_codes:
+        for company in tqdm(self.company_codes, desc="Calculating market cap"):
             try:
                 company_ticker = yf.Ticker(company)
                 shares_outstanding = company_ticker.info.get("sharesOutstanding")
@@ -208,17 +208,15 @@ class ASXPipeline:
                 market_cap.index = pd.to_datetime(market_cap.index.date)
                 market_cap.rename(company, inplace=True)
                 market_list.append(market_cap)
-                if (i % 40 == 0):
-                    print(f"Successfully fetched market cap {i}/200")
-                i += 1
             except Exception as e: 
                 print(f"Failed for {company}: {e}")
         market_cap_df = pd.concat(market_list, axis=1, ignore_index=False)
         market_cap_df = market_cap_df.reset_index().rename(columns={"index": "Date"})
         return market_cap_df
     
-    def getSectorReturns(self, market_cap_path, companies_df):
-        market_cap_df = pd.read_parquet(market_cap_path)
+    def getSectorReturns(self, companies_df):
+        print("Calculating industry returns ...")
+        market_cap_df = self.market_cap
         returns_df = pd.read_parquet(self.company_paths_dict["returns"])
         sector_list = companies_df["industry"].unique().tolist()
         industry_return_dict = {}
@@ -265,9 +263,11 @@ class ASXPipeline:
             net_income = None
         return net_income
     
-    def get_fundamentals(self, prices_df: pd.DataFrame) -> None: 
+    def get_fundamentals(self) -> dict[str, pd.DataFrame]: 
+        print("Retrieving fundamental data ...")
+        
         company_fundamentals_dict = dict() 
-        for company in self.company_codes:  
+        for company in tqdm(self.company_codes, desc="Calculating fundamental ratios"):  
             company_ticker = yf.Ticker(company)
             bs = company_ticker.balance_sheet.copy()
             income_stmt = company_ticker.income_stmt.copy() 
@@ -289,6 +289,8 @@ class ASXPipeline:
             for key in fundamentals.keys(): 
                 fundamentals[key] = fundamentals[key].fillna(method="ffill")
             
+            print(fundamentals.head())
+            
             roa = net_income / assets
             roe = net_income / equity
             
@@ -298,18 +300,23 @@ class ASXPipeline:
             company_fundamentals_dict[company] = fundamentals
         return company_fundamentals_dict
     
-    def get_ptb(self, prices_df: pd.DataFrame) -> None: 
+    def get_ptb(self, prices_df: pd.DataFrame) -> pd.DataFrame: 
+        print("Retrieving price to book data ...")
+        
         ptb_dict = dict()
-        for company in self.company_codes: 
+        for company in tqdm(self.company_codes, desc="Calculating price to book ratios"): 
             fundamentals = self.fundamentals_dict[company].copy()
             fundamentals = fundamentals.sort_index(ascending=False)
             
             ptb_df = pd.DataFrame({
-                    "Date": prices_df["Date"].copy(),
-                    "Price": prices_df[company].copy()
+                "Date": prices_df["Date"].copy(),
+                "Price": prices_df[company].copy()
             })
             
-            fund_tmp = fundamentals.reset_index().rename(columns={"index": "Date"})
+            fund_tmp = fundamentals[["Equity", "Shares"]].copy()
+            fund_tmp["bvps"] = fund_tmp["Equity"] / fund_tmp["Shares"]
+            
+            fund_tmp = fund_tmp.reset_index().rename(columns={"index": "Date"})
             fund_tmp["Date"] = pd.to_datetime(fund_tmp["Date"])
             
             ptb_df = ptb_df.sort_values("Date")
@@ -335,15 +342,15 @@ class ASXPipeline:
         return ptb_final_df
                 
                 
-    def get_dividend_yield(self, prices_df: pd.DataFrame) -> None: 
+    def get_dividend_yield(self, prices_df: pd.DataFrame) -> pd.DataFrame: 
+        print("Retrieving dividend yield data ...")
         dividend_yield_dict = dict()
         
-        earliest = prices_df["Date"].min()
-        latest = prices_df["Date"].max() 
+        earliest = prices_df["Date"].min() 
         
         zero_dividend_companies = []
         i = 0        
-        for company in self.company_codes: 
+        for company in tqdm(self.company_codes, desc="Calculating dividend yields"): 
             ptd_df = pd.DataFrame({
                 "Date": prices_df["Date"].copy(), 
                 "Price": prices_df[company].copy()
@@ -409,7 +416,7 @@ class ASXPipeline:
         
         return ptd_final_df
         
-    def get_earnings_yield(self, market_cap_df: pd.DataFrame) -> dict:
+    def get_earnings_yield(self, market_cap_df: pd.DataFrame) -> pd.DataFrame:
         earnings_yield_dict = dict()
         for company in self.company_codes:
             fundamentals_company = self.fundamentals_dict[company].copy()
@@ -441,9 +448,12 @@ class ASXPipeline:
         return earnings_yield_df
     
     def get_ROA_ROE(self, prices_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]: 
+    
+        print("Retrieving ROA and ROE data ...")    
+        
         roa_dict, roe_dict = dict(), dict()
         
-        for company in self.company_codes: 
+        for company in tqdm(self.company_codes, desc="Calculating ROA and ROE"): 
             fundamentals_company = self.fundamentals_dict[company].copy()
             roa_roe_tmp_df = fundamentals_company[["Net Income", "Equity", "Assets"]].copy()
             
@@ -489,14 +499,10 @@ class ASXPipeline:
         roa_final_df = pd.DataFrame(roa_dict)
         roe_final_df = pd.DataFrame(roe_dict)
         
-        print(roa_final_df)
-        
-        print(roe_final_df)
-        
         return roa_final_df, roe_final_df
     
     def get_fundamental_metrics(self, prices_df: pd.DataFrame, market_cap_df: pd.DataFrame) -> None:
-        self.fundamentals_dict = self.get_fundamentals(prices_df)
+        self.fundamentals_dict = self.get_fundamentals()
         self.ptb_df = self.get_ptb(prices_df)
         self.dividend_yield_df = self.get_dividend_yield(prices_df)
         self.earnings_yield_df = self.get_earnings_yield(market_cap_df)
