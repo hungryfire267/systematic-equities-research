@@ -32,7 +32,7 @@ class Fundamentals:
             "roa": True,
             "roe": True           
         }
-        df = self.roa_df
+        df = self.dividend_yield_df
         print(df.mean(axis=1))
         
     def cross_sectional_ranking(fundamental_df: pd.DataFrame): 

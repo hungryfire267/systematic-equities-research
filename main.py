@@ -16,8 +16,7 @@ if __name__ == "__main__":
     start_date = end_date - dt.timedelta(days=1461)
  
     # pipeline = ASXPipeline(companies_df, start_date, end_date)
-    # market_cap = pipeline.GetMarketCap()
-    # pipeline.GetData(market_cap)
+    # pipeline.get_data()
     
     
     
@@ -27,4 +26,4 @@ if __name__ == "__main__":
     
     # Reversal(0.25, 0.75, [5, 10, 21])
     
-    # pipeline = Fundamentals()
+    pipeline = Fundamentals()
