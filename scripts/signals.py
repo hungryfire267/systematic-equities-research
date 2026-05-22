@@ -25,6 +25,15 @@ class Fundamentals:
         self.roa_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/fundamentals/roa.parquet"))
         self.roe_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/fundamentals/roe.parquet"))
         
+        
+        self.df_dict = {
+            "ptb": self.ptb_df, 
+            "dividend_yield": self.dividend_yield_df, 
+            "earnings_yield": self.earnings_yield_df, 
+            "roa": self.roa_df, 
+            "roe": self.roe_df
+        }
+        
         self.ranking_config = { 
             "ptb": False,
             "dividend_yield": True, 
@@ -32,16 +41,21 @@ class Fundamentals:
             "roa": True,
             "roe": True           
         }
-        df = self.dividend_yield_df
-        print(df.mean(axis=1))
         
-    def cross_sectional_ranking(fundamental_df: pd.DataFrame): 
-        mean = fundamental_df.mean(axis = 1)
-        std =  fundamental_df.std(axis=1)
-    
+    def cross_sectional_ranking(self, fundamental_df: pd.DataFrame): 
+        mean = fundamental_df.mean(axis=1)
+        std = fundamental_df.std(axis=1, skipna=True)
+
+        new_df = fundamental_df.sub(mean, axis=0).div(std, axis=0)
         
-        print(mean)
         
+        print(new_df)
+        
+    def run_data(self): 
+        for keys, df in self.df_dict.items():
+            print(df)
+            print(self.cross_sectional_ranking(df))
+            break
         
         
 

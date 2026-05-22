@@ -292,14 +292,15 @@ class ASXPipeline:
                 fundamentals[key] = fundamentals[key].ffill().bfill()
             
             fundamentals[["Equity", "Assets"]] = fundamentals[["Equity", "Assets"]].replace(0, np.nan)
-            if (company == "GGP.AX"):
-                print(fundamentals.head())
             
             roa = net_income / assets
             roe = net_income / equity
             
             fundamentals["ROA"] = roa
             fundamentals["ROE"] = roe
+            
+            print("Company: ", company)
+            print(fundamentals.head())
             
             company_fundamentals_dict[company] = fundamentals
         return company_fundamentals_dict
