@@ -47,7 +47,7 @@ class Fundamentals:
         std = fundamental_df.std(axis=1, skipna=True)
 
         new_df = fundamental_df.sub(mean, axis=0).div(std, axis=0)
-        
+        new_df.rank
         
         print(new_df)
         
