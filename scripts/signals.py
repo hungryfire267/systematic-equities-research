@@ -16,6 +16,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def percentile_check(lower_percentile: float, upper_percentile: float) -> None: 
     if not (0 <= lower_percentile < upper_percentile <= 100): 
         raise ValueError("Require 0 <= lower_percentile < upper_percentile <= 100") 
+    
+    
 
 class Fundamentals: 
     def __init__(self): 
@@ -25,37 +27,214 @@ class Fundamentals:
         self.roa_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/fundamentals/roa.parquet"))
         self.roe_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/fundamentals/roe.parquet"))
         
-        
-        self.df_dict = {
-            "ptb": self.ptb_df, 
-            "dividend_yield": self.dividend_yield_df, 
-            "earnings_yield": self.earnings_yield_df, 
-            "roa": self.roa_df, 
-            "roe": self.roe_df
+        self.factor_config = { 
+            "ptb": {
+                "df": self.ptb_df, 
+                "higher_is_better": False,
+                "group": "value"
+            }, 
+            "dividend_yield": {
+                "df": self.dividend_yield_df, 
+                "higher_is_better": True, 
+                "group": "value"
+            },  
+            "earnings_yield": {
+                "df": self.earnings_yield_df, 
+                "higher_is_better": True, 
+                "group": "value"
+            }, 
+            "roa": {
+                "df": self.roa_df, 
+                "higher_is_better": True, 
+                "group": "quality"
+            },
+            "roe": {
+                "df": self.roe_df, 
+                "higher_is_better": True, 
+                "group": "quality"
+            }
         }
+            
+    def cross_sectional_ranking(self, df: pd.DataFrame, higher_is_better: bool) -> pd.DataFrame: 
+        mean = df.mean(axis=1)
+        std = df.std(axis=1, skipna=True)
+        new_df = df.sub(mean, axis=0).div(std, axis=0)
+        rank = new_df.rank(axis=1, pct=True, ascending=higher_is_better)
+        return rank
+    
+    def build_factor_ranks(self) -> dict:
+        ranked_factors = dict()
         
-        self.ranking_config = { 
-            "ptb": False,
-            "dividend_yield": True, 
-            "earnings_yield": True, 
-            "roa": True,
-            "roe": True           
-        }
+        for factor_name, config in self.factor_config.items(): 
+            ranked_factors[factor_name] = self.cross_sectional_ranking(
+                config["df"], 
+                higher_is_better = config["higher_is_better"]
+            )
         
-    def cross_sectional_ranking(self, fundamental_df: pd.DataFrame): 
-        mean = fundamental_df.mean(axis=1)
-        std = fundamental_df.std(axis=1, skipna=True)
+        return ranked_factors
+    
+    def build_group_signal(self, group_name: str): 
+        ranked_factors = self.build_factor_ranks() 
+        
+        group_dfs = []
+        for factor_name, config in self.factor_config.items(): 
+            if (config["group"] == group_name): 
+                group_dfs.append(ranked_factors[factor_name])
+            
+        group_signal = sum(group_dfs) / len(group_dfs)
 
-        new_df = fundamental_df.sub(mean, axis=0).div(std, axis=0)
-        new_df.rank
+        group_signal = group_signal.rank(axis=1, pct=True)
+        return group_signal
+
+    def run_data(self) -> pd.DataFrame: 
+        value_signal = self.build_group_signal("value")
+        quality_signal = self.build_group_signal("quality")
+        fundamental_signals = (value_signal + quality_signal)/2
         
-        print(new_df)
+        fundamental_signals = fundamental_signals.rank(axis=1, pct=True)
         
-    def run_data(self): 
-        for keys, df in self.df_dict.items():
-            print(df)
-            print(self.cross_sectional_ranking(df))
-            break
+        return fundamental_signals
+    
+class Momentum: 
+    def __init__(self, weights: list, n: int): 
+        self.returns_df = pd.read_parquet(Path(r"data/raw/companies/returns.parquet"))
+        self.industry_returns = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/industry/industry_returns.parquet"))        
+        self.returns_df["Date"] = pd.to_datetime(self.returns_df["Date"])
+        self.returns_df = self.returns_df.set_index("Date")
+        
+        assert (n > 0)
+        assert (len(weights) == n)
+        
+        self.factor_config = {
+            "mom_12_1": {
+                "score": None, 
+                "higher_is_better": True
+            }, 
+            "id": {
+                "score":None, 
+                "higher_is_better": True
+            }
+        }
+        
+        self.weights = weights
+        
+    def get_momentum(self, lookback=252, skip=21) -> pd.DataFrame:
+        past_returns = self.returns_df.copy().shift(skip)
+        cumulative_returns = past_returns.rolling(lookback).sum()
+        
+        return past_returns, cumulative_returns
+        
+    def information_discreteness(self, lookback=252, skip=21) -> pd.DataFrame: 
+        past_returns, cumulative_returns = self.get_momentum()
+        
+        up_days = (past_returns > 0).rolling(lookback).sum()
+        down_days = (past_returns < 0 ).rolling(lookback).sum()
+        
+        id_score = (up_days - down_days) / lookback
+        id_score = id_score * np.sign(cumulative_returns)
+        
+        
+        return id_score 
+    
+    def get_momentum_ranks(self) -> pd.DataFrame:
+        ranking_dict = dict()  
+        for factor, config in self.factor_config.items(): 
+            rank = config["score"].rank(axis=1, pct=True, ascending=config["higher_is_better"])
+            ranking_dict[factor] = rank
+        
+        return ranking_dict
+        
+    def run_data(self) -> pd.DataFrame: 
+        _, self.factor_config["mom_12_1"]["score"] = self.get_momentum()
+        self.factor_config["id"]["score"] = self.information_discreteness()
+        
+        ranking_dict = self.get_momentum_ranks()
+        
+        final_score = sum(
+            weight * rank for weight, rank in zip(self.weights, ranking_dict.values())
+        )
+        final_rank = final_score.rank(axis=1, pct=True)
+        
+        return final_rank
+
+class Reversal: 
+    def __init__(self, lower_percentile: float, upper_percentile: float, windows_list: list[int]): 
+        self.returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/returns.parquet"))
+        self.asx_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/asx/asx_returns.parquet"))
+        self.industry_dict = pd.read_csv(Path(rf"{PROJECT_ROOT}/data/asx_companies.csv")).set_index("asxCode")["industry"].to_dict()
+        self.industry_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/industry/industry_returns.parquet"))
+        self.industry_df = pd.read_csv(Path(rf"{PROJECT_ROOT}/data/asx_companies.csv"))
+        self.industry_df["code"] =  [str(code) + ".AX" for code in list(self.industry_df["asxCode"])]
+        self.industry_dict = self.industry_df.set_index("code")["industry"].to_dict()
+        self.total_days = self.returns_df.shape[0]
+        self.lower = lower_percentile
+        self.upper = upper_percentile
+
+        self.rsr5_dict, self.rsr10_dict, self.rsr21_dict = dict(), dict(), dict()
+    
+        self.reversal_config, self.rsr_config = dict(), dict()
+        for window in windows_list: 
+            self.reversal_config[window] = {
+                "df": None, 
+                "higher_is_better": True
+            }
+            self.rsr_config[window] = {
+                "df": None, 
+                "higher_is_better": True
+            }
+        
+        
+        
+        
+
+    def get_Reversal(self): 
+        reversal_dict = dict()
+        for w in windows_list: 
+            cumulative_returns = (1 + self.returns_df.rolling(window=w).apply(np.prod, raw=True))- 1
+            reversal_dict[w] = - cumulative_returns
+
+    def get_rsr(self) -> pd.DataFrame: 
+        rsr_dict, rsr_df_dict = dict(), dict()
+        rsr_dict = dict()
+        print(self.returns_df.columns)
+        market_returns = self.asx_returns_df["^AXJO"]
+        company_list = list(self.returns_df.columns[1:])
+        for company in company_list: 
+            company_returns = self.returns_df[company]
+            industry = self.industry_dict[company]
+            industry_returns = self.industry_returns_df[industry]
+            total_returns = pd.concat([industry_returns, market_returns, company_returns], axis=1).dropna()
+            null_days = self.total_days - total_returns.shape[0]
+            y_returns = total_returns[company]
+            X_returns = total_returns.drop(columns=[company])
+            linear_model = LinearRegression().fit(X_returns, y_returns)
+            residuals = y_returns - linear_model.predict(X_returns)
+            residuals = residuals.reindex(range(0, residuals.index.max() + 1))
+            residuals = residuals.sort_index()
+            residuals.index = self.returns_df["Date"]
+            
+            
+            for window in self.rsr_config.keys(): 
+                self.rsr_dict[window][company] = - ((1 + residuals)).rolling(window=window).apply(np.prod, raw=True) -1)
+        
+        for window in self.rsr_config.keys(): 
+            self.rsr_config[window]["df"] =  pd.DataFrame(rsr_dict[window]).reset_index()
+
+    
+        def get_reversal_ranks(self, reversal_type: str): 
+            reversal_dict = None
+            if reversal_type == "reversal": 
+                reversal_dict = self.reversal_config
+            elif reversal_type == "rsr": 
+                reversal_dict = self.rsr_config
+            else: 
+                raise ValueError("reversal_type must be either 'reversal' or 'rsr'") 
+        
+        
+        
+    def run_data(self) -> pd.DataFrame: 
+        self.get_rsr() 
+        
         
         
 
