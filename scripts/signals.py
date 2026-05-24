@@ -13,11 +13,12 @@ UNIVERSE_PATH = Path("data/asx_companies.csv")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-def percentile_check(lower_percentile: float, upper_percentile: float) -> None: 
-    if not (0 <= lower_percentile < upper_percentile <= 100): 
-        raise ValueError("Require 0 <= lower_percentile < upper_percentile <= 100") 
-    
-    
+def cross_sectional_ranking(df: pd.DataFrame, higher_is_better: bool) -> pd.DataFrame: 
+    mean = df.mean(axis=1)
+    std = df.std(axis=1, skipna=True)
+    new_df = df.sub(mean, axis=0).div(std, axis=0)
+    rank = new_df.rank(axis=1, pct=True, ascending=higher_is_better)
+    return rank
 
 class Fundamentals: 
     def __init__(self): 
@@ -158,7 +159,7 @@ class Momentum:
         return final_rank
 
 class Reversal: 
-    def __init__(self, lower_percentile: float, upper_percentile: float, windows_list: list[int]): 
+    def __init__(self, windows_list: list[int], weights: list[float]): 
         self.returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/returns.parquet"))
         self.asx_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/asx/asx_returns.parquet"))
         self.industry_dict = pd.read_csv(Path(rf"{PROJECT_ROOT}/data/asx_companies.csv")).set_index("asxCode")["industry"].to_dict()
@@ -167,8 +168,6 @@ class Reversal:
         self.industry_df["code"] =  [str(code) + ".AX" for code in list(self.industry_df["asxCode"])]
         self.industry_dict = self.industry_df.set_index("code")["industry"].to_dict()
         self.total_days = self.returns_df.shape[0]
-        self.lower = lower_percentile
-        self.upper = upper_percentile
 
         self.rsr5_dict, self.rsr10_dict, self.rsr21_dict = dict(), dict(), dict()
     
@@ -182,6 +181,11 @@ class Reversal:
                 "df": None, 
                 "higher_is_better": True
             }
+        assert(weights.sum() == 1)
+        assert(len(weights) == len(windows_list))
+        
+        self.weights_dict = dict(zip(windows_list, weights))
+        
         
         
         
@@ -221,19 +225,41 @@ class Reversal:
             self.rsr_config[window]["df"] =  pd.DataFrame(rsr_dict[window]).reset_index()
 
     
-        def get_reversal_ranks(self, reversal_type: str): 
-            reversal_dict = None
-            if reversal_type == "reversal": 
-                reversal_dict = self.reversal_config
-            elif reversal_type == "rsr": 
-                reversal_dict = self.rsr_config
+    def get_reversal_ranks(self, reversal_type: str): 
+        reversal_dict = None
+        if reversal_type == "reversal": 
+            reversal_dict = self.reversal_config
+        elif reversal_type == "rsr": 
+            reversal_dict = self.rsr_config
+        else: 
+            raise ValueError("reversal_type must be either 'reversal' or 'rsr'")
+        
+        
+        for window, config in reversal_dict.items(): 
+            rank_score = cross_sectional_ranking(config["df"], config["higher_is_better"])
+            if (reversal_type == "reversal"): 
+                self.reversal_config[window]["rank"] = rank_score
             else: 
-                raise ValueError("reversal_type must be either 'reversal' or 'rsr'") 
-        
-        
-        
+                self.rsr_config[window]["rank"] = rank_score
+             
     def run_data(self) -> pd.DataFrame: 
-        self.get_rsr() 
+        self.get_rsr()
+        self.get_reversal_ranks("reversal")
+        self.get_reversal_ranks("rsr")
+        
+        # Combine ranks through ridge (after backtesting different combinations of weights, we found that giving more weight to shorter-term reversal signals yields better results)
+        
+        # For now we will use simple weights
+        
+        reversal_weighted_rank_dict, rsr_weighted_rank_dict = dict(), dict()
+        total_reversal_score = sum()
+        total_rsr_score = sum()
+            
+            
+        final_score = 0.5 * total_reversal_score + 0.5 * total_rsr_score
+            
+        
+        
         
         
         
