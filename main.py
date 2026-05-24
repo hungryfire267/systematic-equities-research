@@ -5,7 +5,7 @@ from pathlib import Path
 import os
 
 from scripts.run_fetch import ASXPipeline
-from scripts.signals import Fundamentals
+from scripts.signals import Fundamentals, Microstructure
 
 UNIVERSE_PATH = Path("data/asx_companies.csv")
 
@@ -26,5 +26,8 @@ if __name__ == "__main__":
     
     # Reversal(0.25, 0.75, [5, 10, 21])
     
-    pipeline = Fundamentals()
-    pipeline.run_data()
+    pipeline = Microstructure()
+    pipeline.get_data()
+    
+    
+    

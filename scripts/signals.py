@@ -191,14 +191,16 @@ class Reversal:
         
         
 
-    def get_Reversal(self): 
-        reversal_dict = dict()
-        for w in windows_list: 
-            cumulative_returns = (1 + self.returns_df.rolling(window=w).apply(np.prod, raw=True))- 1
-            reversal_dict[w] = - cumulative_returns
+    def get_Reversal(self) -> None: 
+        for window in self.reversal_config.keys(): 
+            cumulative_returns = (
+                1 + self.returns_df.rolling(window=window).apply(np.prod, raw=True)
+            ) - 1
+            self.reversal_config[window]["df"] = - cumulative_returns.reset_index()
+        
 
-    def get_rsr(self) -> pd.DataFrame: 
-        rsr_dict, rsr_df_dict = dict(), dict()
+    def get_rsr(self) -> None: 
+        rsr_dict = dict(), dict()
         rsr_dict = dict()
         print(self.returns_df.columns)
         market_returns = self.asx_returns_df["^AXJO"]
@@ -251,12 +253,19 @@ class Reversal:
         
         # For now we will use simple weights
         
-        reversal_weighted_rank_dict, rsr_weighted_rank_dict = dict(), dict()
-        total_reversal_score = sum()
-        total_rsr_score = sum()
-            
+        total_reversal_score = sum(
+            self.weights_dict[window] * self.reversal_config[window]["rank"] for window in self.weights_dict.keys()
+        )
+        total_rsr_score = sum(
+            self.weights_dict[window] * self.rsr_config[window]["rank"] for window in self.weights_dict.keys()
+        )
             
         final_score = 0.5 * total_reversal_score + 0.5 * total_rsr_score
+        final_rank = final_score.rank(axis=1, pct=True)
+        
+        return final_rank
+    
+    
             
         
         
@@ -455,8 +464,14 @@ class Reversal:
             self.rsr_dict[window] = dict()
             
         
+class Microstructure: 
+    def __init__(self): 
+        self.prices_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/price.parquet")) 
+        self.volume_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/volume.parquet"))    
+
+    def get_data(self): 
+        print(self.prices_df.head())
         
-    
         
  
         
