@@ -5,6 +5,7 @@ import os
 import pandas as pd
 from pathlib import Path
 import seaborn as sns
+from scripts.signals_functions import date_parser
 from sklearn.linear_model import LinearRegression
 from statsmodels.tsa.stattools import coint
 import statsmodels.api as sm
@@ -221,7 +222,7 @@ class Reversal:
             
             
             for window in self.rsr_config.keys(): 
-                self.rsr_dict[window][company] = - ((1 + residuals)).rolling(window=window).apply(np.prod, raw=True) -1)
+                self.rsr_dict[window][company] = - ((1 + residuals)).rolling(window=window).apply(np.prod, raw=True) -1
         
         for window in self.rsr_config.keys(): 
             self.rsr_config[window]["df"] =  pd.DataFrame(rsr_dict[window]).reset_index()
@@ -424,25 +425,7 @@ class KalmanFilterBuilder:
 
 
 
-class Momentum: 
-    def __init__(self, lower_percentile: float, upper_percentile: float): 
-        self.returns_df = pd.read_parquet(Path(r"data/raw/companies/returns.parquet"))
-        percentile_check(lower_percentile, upper_percentile)
-        self.lower = lower_percentile
-        self.upper = upper_percentile
-        
-        self.returns_df["Date"] = pd.to_datetime(self.returns_df["Date"])
-        self.returns_df = self.returns_df.set_index("Date")
-        
-    def get_Momentum(self): 
-        momentum_score = self.returns_df.shift(21).rolling(252).sum()
-        ranks = momentum_score.rank(axis=1, pct=True)
-        momentum_signal_df = pd.DataFrame(0, index=ranks.index, columns=list(ranks.columns))
-        momentum_signal_df[ranks >= self.upper] = 1
-        momentum_signal_df[ranks <= self.lower] = -1
-        self.momentum_signal_df = momentum_signal_df.reset_index()
-        print(self.momentum_signal_df)
-    
+
         
 class Reversal: 
     def __init__(self, lower_percentile: float, upper_percentile: float, windows_list: list[int]): 
@@ -463,17 +446,157 @@ class Reversal:
             self.reversal_dict[window] = dict() 
             self.rsr_dict[window] = dict()
             
-        
-class Microstructure: 
-    def __init__(self): 
-        self.prices_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/price.parquet")) 
-        self.volume_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/volume.parquet"))    
 
+     
+class Microstructure: 
+    def __init__(self, window_list): 
+        prices_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/prices.parquet")) 
+        volume_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/volume.parquet"))    
+        returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/returns.parquet"))
+        
+        self.prices_df = date_parser(prices_df) 
+        self.volume_df = date_parser(volume_df)
+        self.returns_df = date_parser(returns_df)
+        self.window_periods = dict()
+        for window in window_list: 
+            min_periods = max(3, int(0.5 * window))
+            self.window_periods[window] = min_periods
+        
+        self.factor_config = dict()
+    
+    def get_dollar_volume(self):
+        return self.prices_df * self.volume_df
+    
+    def dollar_volume_liquidity(self): 
+        dv_liquidity_dict = dict()
+        dollar_volume = self.get_dollar_volume()
+        for window, min_periods in self.window_periods.items(): 
+            liquidity = dollar_volume.rolling(window=window, min_periods=min_periods).mean()
+            rank = liquidity.rank(axis=1, pct=True, ascending=True)
+            dv_liquidity_dict[window] = rank
+        return dv_liquidity_dict
+
+    def get_amihud(self):
+        amihud_dict = dict() 
+        dollar_volume = self.get_dollar_volume()
+        amihud = self.returns_df.abs() / dollar_volume
+        
+        for window, min_periods in self.window_periods.items():
+            amihud_smoothed = amihud.rolling(window=window, min_periods=min_periods).mean()
+        amihud_rank = 1 - amihud_smoothed
+        amihud_dict[window] = amihud_rank
+        
+        return amihud_dict
+    
     def get_data(self): 
-        print(self.prices_df.head())
+        dv_liquidity_dict = self.dollar_volume_liquidity() 
+        amihud_dict_dict = self.get_amihud()
+        
+        return dv_liquidity_dict, amihud_dict_dict
+        
+class BetaFeatures: 
+    def __init__(self, window_list): 
+        companies_df = pd.read_csv(rf"{PROJECT_ROOT}/asx_companies.csv")
         
         
- 
+        returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/returns.parquet"))
+        asx_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/asx/asx_returns.parquet"))
+        industry_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/industry/industry_returns.parquet"))
+        
+        self.returns_df = date_parser(returns_df) 
+        self.asx_returns_df = date_parser(asx_returns_df)
+        self.industry_returns_df = date_parser(industry_returns_df)
+        self.companies_df = companies_df
+        
+        self.window_list = window_list
+    
+    def beta_calculation(combined_df: pd.DataFrame, beta_type, window) -> pd.Series: 
+        cov = combined_df["company"].rolling(window=window).cov(combined_df["market"])
+        var = combined_df["market"].rolling(window=window).var()
+        return cov/var
+    
+    def vol_calculation(combined_df: pd.DataFrame, beta_type, window): 
+        
+    
+    def get_market_rolling_beta_vol(self) -> dict: 
+        market_beta_df_dict, market_beta_window_dict = dict(), dict()
+        
+        marke
+
+        market_returns = self.asx_returns_df["^AXJO"].copy()
+        for company in self.returns_df.columns: 
+            company_returns = self.returns_df[company]
+            combined_df = pd.concat([market_returns, company_returns], axis=1)
+            combined_df.columns = ["market", "company"]
+            for window in self.window_list: 
+                if window not in market_beta_window_dict.keys(): 
+                    market_beta_window_dict[window] = dict()
+                market_beta_window_dict[window][company] = self.beta_calculation(combined_df, "market", window)
+
+        for window in self.window_list: 
+            market_beta_df_dict[window] = pd.DataFrame(market_beta_window_dict[window])
+            
+        return market_beta_df_dict
+    
+    def get_industry_company_return(self, company: str) -> pd.Series: 
+        company_returns = self.returns_df[company]
+        company_final = company.split(".")[0]
+        
+        condition = (self.companies_df["asxCode"] == company_final)
+        company_industry = self.companies_df.loc[condition, "industry"].iloc[0]
+
+        industry_returns = self.industry_returns_df[company_industry]
+        return industry_returns
+    
+    
+    
+    
+    def get_industry_rolling_beta(self) -> dict: 
+        industry_beta_df_dict, industry_beta_window_dict = dict(), dict()
+        for company in self.returns_df.columns: 
+            company_returns = self.returns_df[company]
+            company_final = company.split(".")[0]
+            
+            condition = (self.companies_df["asxCode"] == company_final)
+            company_industry = self.companies_df.loc[condition, "industry"].iloc[0]
+
+            industry_returns = self.industry_returns_df[company_industry]
+            combined_df = pd.concat([industry_returns, company_returns], axis = 1)
+
+            for window in self.window_list:
+                if window not in industry_beta_window_dict.keys(): 
+                    industry_beta_window_dict[window] = dict()
+                industry_beta_window_dict[window][company] = self.beta_calculation(combined_df, "industry", window)
+        
+        for window in self.window_list: 
+            industry_beta_df_dict[window] = pd.DataFrame(industry_beta_window_dict[window])
+            
+        return industry_beta_df_dict
+    
+    def get_industry_rolling_vol(self) -> dict: 
+        for company in self.returns_df.columns: 
+            industry_returns = self.get_industry_company_returns(company)
+            
+        
+    
+    def get_data(self): 
+        market_beta_df_dict = dict(), dict()
+        market_idio_vol_dict, industry_idio_vol_dict = dict(), dict()
+        for window in self.window_list: 
+            market_beta_df_dict[window] = self.get_market_rolling_beta()
+            industry_beta_df_dict[window] = self.get_industry_rolling_beta()
+            
+            market_idio_vol_dict[window] = self.get_market_rolling_vol() 
+            industry_idio_vol_dict[window] = self.get_industry_rolling_vol() 
+    
+            
+            
+         
+         
+        
+        
+        
+
         
         
         
