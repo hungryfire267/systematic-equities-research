@@ -495,7 +495,7 @@ class Microstructure:
         return dv_liquidity_dict, amihud_dict_dict
         
 class BetaFeatures: 
-    def __init__(self, window_list): 
+    def __init__(self, window_list: list, weights_list: list): 
         companies_df = pd.read_csv(rf"{PROJECT_ROOT}/asx_companies.csv")
         
         
@@ -509,37 +509,44 @@ class BetaFeatures:
         self.companies_df = companies_df
         
         self.window_list = window_list
+        
+        assert(len(weights_list) == 2)
+        assert(weights_list.sum() == 1)
+        
+        self.weights_list = weights_list
     
+    @staticmethod
     def beta_calculation(combined_df: pd.DataFrame, beta_type, window) -> pd.Series: 
-        cov = combined_df["company"].rolling(window=window).cov(combined_df["market"])
-        var = combined_df["market"].rolling(window=window).var()
+        cov = combined_df["company"].rolling(window=window).cov(combined_df[beta_type])
+        var = combined_df[beta_type].rolling(window=window).var()
         return cov/var
     
-    def vol_calculation(combined_df: pd.DataFrame, beta_type, window): 
-        
+    @staticmethod
+    def vol_calculation(combined_df: pd.DataFrame, beta_type: str, window: int, beta: pd.Series) -> pd.Series:
+        residuals = combined_df["company"] - beta * combined_df[beta_type]
+        vol = residuals.rolling(window=window).std()
+        return vol
     
-    def get_market_rolling_beta_vol(self) -> dict: 
-        market_beta_df_dict, market_beta_window_dict = dict(), dict()
-        
-        marke
+    def get_market_rolling_beta_vol(self, window: int) -> dict: 
+        market_beta_df_dict, market_vol_df_dict = dict(), dict()
 
         market_returns = self.asx_returns_df["^AXJO"].copy()
         for company in self.returns_df.columns: 
             company_returns = self.returns_df[company]
             combined_df = pd.concat([market_returns, company_returns], axis=1)
             combined_df.columns = ["market", "company"]
-            for window in self.window_list: 
-                if window not in market_beta_window_dict.keys(): 
-                    market_beta_window_dict[window] = dict()
-                market_beta_window_dict[window][company] = self.beta_calculation(combined_df, "market", window)
-
-        for window in self.window_list: 
-            market_beta_df_dict[window] = pd.DataFrame(market_beta_window_dict[window])
+            beta = self.beta_calculation(combined_df, "market", window)
+            vol = self.vol_calculation(combined_df, "market", window, beta)
             
-        return market_beta_df_dict
+            market_beta_df_dict[company] = beta
+            market_vol_df_dict[company] = vol
+        
+        market_beta_df = pd.DataFrame(market_beta_df_dict)
+        market_vol_df = pd.DataFrame(market_vol_df_dict)
+            
+        return market_beta_df, market_vol_df
     
     def get_industry_company_return(self, company: str) -> pd.Series: 
-        company_returns = self.returns_df[company]
         company_final = company.split(".")[0]
         
         condition = (self.companies_df["asxCode"] == company_final)
@@ -549,48 +556,49 @@ class BetaFeatures:
         return industry_returns
     
     
-    
-    
-    def get_industry_rolling_beta(self) -> dict: 
-        industry_beta_df_dict, industry_beta_window_dict = dict(), dict()
+    def get_industry_rolling_beta_vol(self, window: int) -> dict: 
+        industry_beta_df_dict, industry_vol_df_dict = dict(), dict()
         for company in self.returns_df.columns: 
             company_returns = self.returns_df[company]
-            company_final = company.split(".")[0]
-            
-            condition = (self.companies_df["asxCode"] == company_final)
-            company_industry = self.companies_df.loc[condition, "industry"].iloc[0]
-
-            industry_returns = self.industry_returns_df[company_industry]
+            industry_returns = self.get_industry_company_return(company)
             combined_df = pd.concat([industry_returns, company_returns], axis = 1)
+            combined_df.columns = ["industry", "company"]
 
-            for window in self.window_list:
-                if window not in industry_beta_window_dict.keys(): 
-                    industry_beta_window_dict[window] = dict()
-                industry_beta_window_dict[window][company] = self.beta_calculation(combined_df, "industry", window)
-        
-        for window in self.window_list: 
-            industry_beta_df_dict[window] = pd.DataFrame(industry_beta_window_dict[window])
+            beta = self.beta_calculation(combined_df, "industry", window)
+            vol = self.vol_calculation(combined_df, "industry", window, beta)
             
-        return industry_beta_df_dict
-    
-    def get_industry_rolling_vol(self) -> dict: 
-        for company in self.returns_df.columns: 
-            industry_returns = self.get_industry_company_returns(company)
+            industry_beta_df_dict[company] = beta
+            industry_vol_df_dict[company] = vol
+        
+        industry_beta_df = pd.DataFrame(industry_beta_df_dict)
+        industry_vol_df = pd.DataFrame(industry_vol_df_dict)
+            
+        return industry_beta_df, industry_vol_df
+
             
         
     
-    def get_data(self): 
-        market_beta_df_dict = dict(), dict()
-        market_idio_vol_dict, industry_idio_vol_dict = dict(), dict()
+    def get_data(self) -> tuple[dict, dict]: 
+        beta_df_dict, vol_df_dict = dict(), dict()
         for window in self.window_list: 
-            market_beta_df_dict[window] = self.get_market_rolling_beta()
-            industry_beta_df_dict[window] = self.get_industry_rolling_beta()
+            market_beta_df, market_vol_df = self.get_market_rolling_beta_vol(window)
+            industry_beta_df, industry_vol_df = self.get_industry_rolling_beta_vol(window)
             
-            market_idio_vol_dict[window] = self.get_market_rolling_vol() 
-            industry_idio_vol_dict[window] = self.get_industry_rolling_vol() 
-    
+            market_beta_rank = cross_sectional_ranking(market_beta_df, higher_is_better = False)
+            industry_beta_rank = cross_sectional_ranking(industry_beta_df, higher_is_better = False)
+            market_vol_rank = cross_sectional_ranking(market_vol_df, higher_is_better = False)
+            industry_vol_rank = cross_sectional_ranking(industry_vol_df, higher_is_better = False)
             
+            combined_beta_score = (self.weights_list[0] * market_beta_rank + self.weights_list[1] * industry_beta_rank)
+            combined_vol_score = (self.weights_list[0] * market_vol_rank + self.weights_list[1] * industry_vol_rank)
             
+            combined_beta_rank = combined_beta_score.rank(axis=1, pct=True, ascending=False)
+            combined_vol_rank = combined_vol_score.rank(axis=1, pct=True, ascending=False)
+            
+            beta_df_dict[window] = combined_beta_rank
+            vol_df_dict[window] = combined_vol_rank
+            
+        return beta_df_dict, vol_df_dict
          
          
         
