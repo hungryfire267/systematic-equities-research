@@ -424,29 +424,6 @@ class KalmanFilterBuilder:
         self.window = window 
 
 
-
-
-        
-class Reversal: 
-    def __init__(self, lower_percentile: float, upper_percentile: float, windows_list: list[int]): 
-        self.returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/returns.parquet"))
-        self.asx_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/asx/asx_returns.parquet"))
-        self.industry_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/industry/industry_returns.parquet"))
-        self.industry_df = pd.read_csv(Path(rf"{PROJECT_ROOT}/data/asx_companies.csv"))
-        self.industry_df["code"] =  [str(code) + ".AX" for code in list(self.industry_df["asxCode"])]
-        self.industry_dict = self.industry_df.set_index("code")["industry"].to_dict()
-        self.total_days = self.returns_df.shape[0]
-        self.lower = lower_percentile
-        self.upper = upper_percentile
-        self.windows_list = windows_list
-        self.reversal_dict = dict()
-        self.rsr_dict = dict()
-        
-        for window in self.windows_list: 
-            self.reversal_dict[window] = dict() 
-            self.rsr_dict[window] = dict()
-            
-
      
 class Microstructure: 
     def __init__(self, window_list): 
@@ -615,10 +592,6 @@ class PVO:
         self, extreme_list: tuple[float, float], signal_percentile: tuple[float, float], span_list: tuple[int, int]
     ): 
         self.volume_df = pd.read_parquet(Path(r"data/raw/companies/volume.parquet"))
-        print("Checking PVO extremity check percentiles:")
-        percentile_check(extreme_list[0], extreme_list[1])
-        print("Checking valid signal percentiles:")
-        percentile_check(signal_percentile[0], signal_percentile[1])
         
         self.slow, self.fast = span_list[0], span_list[1]
         self.lower_extreme, self.upper_extreme = extreme_list[0], extreme_list[1]
@@ -808,10 +781,69 @@ class MeanVolatility:
         sigma_df = pd.DataFrame([sigma_dict])   
         return theta_df, mu_df, sigma_df
     
+class MomentumLiquidity: 
+    def __init__(self, momentum_weights: list, momentum_n, liquidity_window_list): 
+        self.momentum_weights = momentum_weights 
+        self.momentum_n = momentum_n 
+        self.liquidity_window_list = liquidity_window_list
+    
+    def build_momentum_liquidity_rank(self, momentum_rank, dv_rank) -> pd.DataFrame: 
+        momentum_dv_score = momentum_rank * dv_rank
+        momentum_dv_rank = momentum_dv_score.rank(axis = 1, pct = True, ascending = True)
+    
+        return momentum_dv_rank
+    
+    
+    def run_data(self) -> dict: 
+        momentum_rank = Momentum(self.momentum_weights, self.momentum_n).run_data()
+        dv_liquidity_dict, _ = Microstructure(self.liquidity_window_list)
+        
+        momentum_liquidity_dict = dict()
+        for window in self.liquidity_window_list: 
+            momentum_liquidity_dict[window] = self.build_momentum_liquidity_rank(
+                window, momentum_rank, dv_liquidity_dict[window]
+            )
+        return momentum_liquidity_dict
 
+class ReversalIlliquidity:
+    def __init__(self, reversal_window_list, reversal_weight_list, liquidity_window_list):
+        assertion_match_list = f"Window mismatch: reversal_window_list - {reversal_window_list} does \
+            not match with illiquidity_window_list {liquidity_window_list}"
+        assert(
+            reversal_window_list == liquidity_window_list, assertion_match_list
+        )
+        
+        self.window_list = reversal_weight_list 
+        self.reversal_weight_list = reversal_weight_list
+        
+    def build_reversal_illiquidity_rank(self, reversal_rank, amihud_rank): 
+        reversal_amihud_score = reversal_rank * amihud_rank
+        reversal_amihud_rank = cross_sectional_ranking(reversal_amihud_score, higher_is_better=True)
+        
+        return reversal_amihud_rank
+                 
+                 
+    def run_data(self) -> dict:
+        reversal_dict = Reversal(self.window_list, self.reversal_weight_list)
+        _, amihud_dict = Microstructure(self.window_list)
+        
+        reversal_illiquidity_dict = dict()
+        for window in self.window_list: 
+            reversal_rank = reversal_dict[window]
+            amihud_rank = amihud_dict[window]
+            reversal_illiquidity_dict[window] = self.build_reversal_illiquidity(reversal_rank, amihud_rank)
+        
+        return reversal_illiquidity_dict
+                
+        
+    
+        
+        
+        
+        
         
 if __name__ == "__main__": 
-    Reversal(0.25, 0.75, [5, 10, 21]).get_Reversal()
-    # pipeline = Kalman(a11=0.95, a12=0.05, a22=0.995, h1=1.0, h2=1.0, window=20).run_kalman_filter()
-    #pipeline.plot_kalman_comparison(["CBA.AX", "ZIP.AX"])
+    momentum = Momentum([0.5, 0.5, 2])
+    Reversal()
+    Microstructure()
 
