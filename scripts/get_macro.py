@@ -1,12 +1,25 @@
+from abc import ABC, abstractmethod
 
 import datetime as dt
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+import json
 import pandas as pd
 import yfinance as yf 
 
 
-from abc import ABC, abstractmethod
 
-API_KEY = 
+from pydantic import BaseModel, Field
+
+class ReleaseEntry(BaseModel): 
+    reference_month: dt.date = Field(description="The first day of the reference month, e.g., '2026-04-01'")
+    release_date: dt.date = Field(description="The date of the release, e.g., '2026-04-15'")
+
+class ABSReleaseCalendar(BaseModel):
+    releases: list[ReleaseEntry] = Field(description="Chronological list of all release dates")
+    
+ 
 
 class MacroPipeline(ABC):
     def __init__(self, start_date, end_date): 
@@ -70,10 +83,6 @@ class CurrencyRates(MacroPipeline):
         df = df[["Date"] + relevant_cols]
         return df
     
-class CIP
-        
-        
-        
         
         
 class UnemploymentRate(MacroPipeline): 
@@ -88,15 +97,35 @@ class UnemploymentRate(MacroPipeline):
         self.ai_client = genai.Client()
     
     def get_unemployment_dates(self) -> pd.DataFrame: 
+        start_date_month = self.start_date.strftime("%B")
+        start_date_year = self.start_date.year
         
+        end_date_month = self.end_date.strftime("%B")
+        end_date_year = self.end_date.year
         
-        
-        prompt = f"""
+        try: 
+            prompt_instruction = f"""
                 Generate a clean historical release schedule for the Australia Bureau of Statistics (ABS) 
-                Labour Force unemployment rate from January 2022 to April 2026. Keep the entries in 
+                Labour Force unemployment rate from {start_date_month} {start_date_year} to {end_date_month} {end_date_year}. Keep the entries in 
                 chronological order.
             """
-        response = 
+            response = self.ai_client.models.generate_content(
+                model="gemini-3.1-flash-lite",
+                contents = prompt_instruction, 
+                config = types.GenerateContentConfig(
+                    response_mime_type = "application/json", 
+                    response_schema = ABSReleaseCalendar, 
+                    temperature = 0.05
+                )
+            )
+        
+            response_json = json.loads(response.text)
+            release_date_df = pd.DataFrame(response_json["releases"])
+            return release_date_df
+    
+        except Exception as e: 
+            print(f"Failed to get ABS release dates using Gemini API. Error: {e}")
+            return None
             
         
     def get_raw_data(self) -> pd.DataFrame:
@@ -123,13 +152,12 @@ class UnemploymentRate(MacroPipeline):
         start_condition = df["Date"] >= self.start_date
         end_condition = df["Date"] <= self.end_date
         df = df[start_condition & end_condition].reset_index(drop=True)
+        
+        
+        
+        release_dates_df = self.get_unemployment_dates() 
         return df
     
-class RerefenceMonth: 
-    
-        
-class yield_curve: 
-    pass
 
 class interest_rates: 
     def __init__(self, start_date, end_date): 
@@ -187,7 +215,7 @@ if __name__ == "__main__":
     start_date = end_date - dt.timedelta(days=1461)
     
     end_date_year = end_date.year
-    
+    load_dotenv()
     
     currency_data = CurrencyRates(start_date, end_date).run_data()
     print(currency_data.head())
