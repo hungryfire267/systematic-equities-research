@@ -1,16 +1,27 @@
 from abc import ABC, abstractmethod
 
 import datetime as dt
+from dbnomics import fetch_series
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 import json
+import os
 import pandas as pd
+from pathlib import Path
 import yfinance as yf 
 
 
 
 from pydantic import BaseModel, Field
+
+
+RAW_DIR = Path("data/raw")
+MACRO_DIR = RAW_DIR /"macro"
+MACRO_DIR.mkdir(parents = True, exist_ok = True)
+
+
+
 
 class ReleaseEntry(BaseModel):
     month_of_release: dt.date = Field(
@@ -30,25 +41,38 @@ class MacroPipeline(ABC):
     def __init__(self, start_date, end_date): 
         self.start_date = start_date
         self.end_date = end_date
+        
+        self.macro_paths_dict = { 
+            "CPI": os.path.join(MACRO_DIR, "cpi.parquet"), 
+            "CurrencyRate": os.path.join(MACRO_DIR, "currency_rates.parquet"),
+            "UnemploymentRate": os.path.join(MACRO_DIR, "unemployment_rates.parquet"), 
+            "InterestRate": os.path.join(MACRO_DIR, "interest_rates.parquet"), 
+            "YieldCurve": os.path.join(MACRO_DIR, "yield_curves.parquet")
+        }
     
     @abstractmethod
-    def get_raw_data(self) -> pd.DataFrame | list[pd.DataFrame]: 
+    def get_raw_data(self) -> pd.DataFrame | dict[str, pd.DataFrame]: 
         pass
     
     @abstractmethod
-    def clean_data(self, raw_data: pd.DataFrame | list[pd.DataFrame]) -> pd.DataFrame: 
+    def clean_data(self, raw_data: pd.DataFrame | dict[str, pd.DataFrame]) -> pd.DataFrame: 
         pass
     
     def run_data(self) -> pd.DataFrame: 
         raw_data = self.get_raw_data() 
-        clean_data = self.clean_data(raw_data)
-        return clean_data
+         
+        final_data = self.clean_data(raw_data)
+    
+        class_name = self.__class__.__name__
+        final_data.to_parquet(self.macro_paths_dict[class_name], index = False, engine="pyarrow")
+    
+        return final_data
 
 class CPI(MacroPipeline): 
     def __init__(self, start_date, end_date): 
         super().__init__(start_date, end_date)
         
-        self.client = genai.Client()
+        self.ai_client = genai.Client()
         self.series_mapping = {
             "monthly": "A130393721F", 
             "quarterly": "A2325847F"
@@ -118,7 +142,12 @@ class CPI(MacroPipeline):
         df_monthly = self.load_cpi_data(url_type_dict["monthly"])
         df_quarterly = self.load_cpi_data(url_type_dict["quarterly"])
         
-        return [df_monthly, df_quarterly]
+        df_dict_mapping = { 
+            "monthly": df_monthly, 
+            "quarterly": df_quarterly
+        }
+        
+        return df_dict_mapping
     
     def wrangle_data(self, df: pd.DataFrame, df_type: str) -> pd.DataFrame:
         series_id = self.series_mapping[df_type]
@@ -160,7 +189,12 @@ class CurrencyRates(MacroPipeline):
     def get_raw_data(self) -> pd.DataFrame: 
         currency_2022 = self.load_exchange_data(self.exchange_2022_url)
         currency_current = self.load_exchange_data(self.exchange_current_url)
-        return [currency_2022, currency_current] 
+        
+        df_dict_mapping = { 
+            "2022": currency_2022, 
+            "current": currency_current
+        }
+        return df_dict_mapping
     
     def clean_data(self, raw_data: list[pd.DataFrame]) -> pd.DataFrame:
         df_2022, df_current = raw_data[0], raw_data[1]
@@ -181,6 +215,7 @@ class CurrencyRates(MacroPipeline):
         df_current = df_current.iloc[series_id_index_current + 1:, :].copy()
         
         df = pd.concat([df_2022, df_current], axis=0)
+        df = df[relevant_cols]
         df["Date"] = pd.to_datetime(df.index).date
         start_condition = df["Date"] >= self.start_date
         end_condition = df["Date"] <= self.end_date
@@ -261,70 +296,85 @@ class UnemploymentRate(MacroPipeline):
         df = df[start_condition & end_condition].reset_index(drop=True)
         
         release_dates_df = self.get_unemployment_dates() 
-        print(release_dates_df)
-        if release_dates_df is not None: 
-            df = df.merge(release_dates_df, how="left", left_on="Date", right_on="reference_month")
-            df = df.drop(columns=["reference_month"])
+            
         return df
     
-
-class interest_rates: 
-    def __init__(self, start_date, end_date): 
-        self.start_date = start_date
-        self.end_date = end_date
-        
-    def get_interest_rates(self):
-        cash_ocr_url = r"https://www.rba.gov.au/statistics/tables/xls/f01d.xlsx"
-
-        ocr = pd.read_excel(cash_ocr_url, sheet_name="Data", header=1)
-        title_series = ocr["Title"]
-        series_id_index = title_series[title_series.str.contains("Series ID", na=False)].index[0]
-
-        ocr_final = ocr.iloc[series_id_index + 1 :].copy()
-        return ocr_final
     
-    def clean_interest_rates(self, ocr_final: pd.DataFrame) -> pd.DataFrame:
-        df = ocr_final.copy() 
-        df["Date"] = pd.to_datetime(df["Title"]).dt.date
+
+class InterestRate(MacroPipeline): 
+    def __init__(self, start_date, end_date): 
+        super().__init__(start_date, end_date)
+        self.interest_rate_url = r"https://www.rba.gov.au/statistics/tables/xls/f01d.xlsx"
+        
+    def get_raw_data(self): 
+        df = pd.read_excel(self.interest_rate_url, sheet_name = "Data", header=1)
+        print(df)
+        df = df.set_index("Title")
+        df.index.name = "Date"
+        return df
+
+    
+    def clean_data(self, raw_data: pd.DataFrame):
+        df = raw_data.copy()
+        series_id_index = df.index.get_loc("Series ID")
+        df = df.iloc[series_id_index + 1:, :].copy()
+        
+        print(df)
         
         # Cash Rate Target - Official RBA Policy Stance
         # Interbank Overnight Cash Rate - actual overnight funding rate
         # EOD 3-month BABS - Bank funding / credit conditions
-        # 1 month OIS - Market Expectations of cash rate in 1 month (short term)
-        # 6 month OIS - Market Expectations of cash rate in 6 months (medium term)
-        # 3 month treasury note - Risk-free short-end yield
-        
-        desirable_columns = [
+
+        relevant_cols = [
             "Cash Rate Target", 
             "Interbank Overnight Cash Rate", 
-            "EOD 3-month BABs/NCDs", 
-            "1-month OIS",
-            "6-month OIS",
-            "3-month Treasury Note"
+            "EOD 3-month BABs/NCDs"
         ]
-        df = df[["Date"] + desirable_columns]
+        
+        df = df[relevant_cols]
+        df = df.reset_index()
+        df["Date"] = pd.to_datetime(df["Date"]).dt.date
+        
         start_condition = df["Date"] >= self.start_date
         end_condition = df["Date"] <= self.end_date
-        df = df[start_condition & end_condition].reset_index(drop=True)
+        df = df[start_condition & end_condition].reset_index(drop=True).set_index("Date")
         return df
-    
-    def run_data(self) -> pd.DataFrame: 
-        ocr_final = self.get_interest_rates()
-        ocr_final_df = self.clean_interest_rates(ocr_final)
-        return ocr_final_df
-    
-class YieldCurves: 
-    def __init__(self): 
-        super().__init__(start_date, end_date)
-        
-            
-        
         
 
-def get_day_prefix(day): 
-    if day >= 11 and day <= 13:
-        return "th"
-    return {1: "st", 2: "2nd", 3: "rd"}.get(day % 10, "th")
+    
+class YieldCurve(MacroPipeline): 
+    def __init__(self, start_date, end_date): 
+        super().__init__(start_date, end_date)
+        self.yield_rba_series_mapping = { 
+            "2Y" : "RBA/F2/FCMYGBAG2D", 
+            "5Y": "RBA/F2/FCMYGBAG5D",
+            "10Y": "RBA/F2/FCMYGBAG10D"
+        }
+        
+        
+        
+    def get_raw_data(self): 
+        data_df_dict = dict()
+        for time, series in self.yield_rba_series_mapping.items(): 
+            df = fetch_series(series)[["period", "value"]].copy()
+            df["Date"] = pd.to_datetime(df["period"]).dt.date
+            df = df[["Date", "value"]].copy() 
+            data_df_dict[time] = df
+        
+        return data_df_dict
+        
+    def clean_data(self, raw_data_dict: dict) -> pd.DataFrame: 
+        final_df_dict = dict()
+        for time, df in raw_data_dict.items(): 
+            start_condition = (df["Date"] >= self.start_date)
+            end_condition = (df["Date"] <= self.end_date)
+            final_df = df[start_condition & end_condition].set_index("Date").rename(
+                columns = {"value": f"yield_{time}"}
+            )
+            final_df_dict[time] = final_df 
+        df = pd.concat(final_df_dict.values(), axis=1)
+        print(df)
+        return df
 
 
 if __name__ == "__main__": 
@@ -334,8 +384,10 @@ if __name__ == "__main__":
     print(end_date)
     load_dotenv()
     
+    interest_rate_data = InterestRate(start_date, end_date).run_data()
+    yield_curve_data = YieldCurve(start_date, end_date).run_data()
     
-    raw_data = CPI(start_date, end_date).run_data()
+    print(interest_rate_data)
     
     
 
