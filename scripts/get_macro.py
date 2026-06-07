@@ -337,7 +337,7 @@ class InterestRate(MacroPipeline):
         
         start_condition = df["Date"] >= self.start_date
         end_condition = df["Date"] <= self.end_date
-        df = df[start_condition & end_condition].reset_index(drop=True).set_index("Date")
+        df = df[start_condition & end_condition].reset_index(drop=True)
         return df
         
 

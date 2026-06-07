@@ -524,4 +524,4 @@ class ASXPipeline:
             valid_keys = list(self.company_paths_dict.keys())
             raise KeyError(
                 f"Invalid file name {file_name}. Please choose from the following:", valid_keys
-            ) from e    
+            ) from e                    
