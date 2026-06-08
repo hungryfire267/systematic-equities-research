@@ -173,7 +173,7 @@ class CPI(MacroPipeline):
         return df
         
     
-class CurrencyRates(MacroPipeline): 
+class CurrencyRate(MacroPipeline): 
     def __init__(self, start_date, end_date):
         super().__init__(start_date, end_date)
         self.currency_list = ["CNY", "EUR", "GBP", "HKD", "JPY", "NZD", "USD"]
@@ -196,8 +196,9 @@ class CurrencyRates(MacroPipeline):
         }
         return df_dict_mapping
     
-    def clean_data(self, raw_data: list[pd.DataFrame]) -> pd.DataFrame:
-        df_2022, df_current = raw_data[0], raw_data[1]
+    def clean_data(self, raw_data: dict[str, pd.DataFrame]) -> pd.DataFrame:
+        df_2022 = raw_data["2022"]
+        df_current = raw_data["current"]
         
         relevant_cols = []
         for currency in self.currency_list: 
@@ -220,7 +221,6 @@ class CurrencyRates(MacroPipeline):
         start_condition = df["Date"] >= self.start_date
         end_condition = df["Date"] <= self.end_date
         df = df[start_condition & end_condition].reset_index(drop=True)
-        df = df[["Date"] + relevant_cols]
         return df
     
         
@@ -308,7 +308,6 @@ class InterestRate(MacroPipeline):
         
     def get_raw_data(self): 
         df = pd.read_excel(self.interest_rate_url, sheet_name = "Data", header=1)
-        print(df)
         df = df.set_index("Title")
         df.index.name = "Date"
         return df
@@ -319,7 +318,6 @@ class InterestRate(MacroPipeline):
         series_id_index = df.index.get_loc("Series ID")
         df = df.iloc[series_id_index + 1:, :].copy()
         
-        print(df)
         
         # Cash Rate Target - Official RBA Policy Stance
         # Interbank Overnight Cash Rate - actual overnight funding rate
@@ -373,7 +371,7 @@ class YieldCurve(MacroPipeline):
             )
             final_df_dict[time] = final_df 
         df = pd.concat(final_df_dict.values(), axis=1)
-        print(df)
+        df = df.reset_index()
         return df
 
 
@@ -384,6 +382,7 @@ if __name__ == "__main__":
     print(end_date)
     load_dotenv()
     
+    currency_rate_data = CurrencyRate(start_date, end_date).run_data()
     interest_rate_data = InterestRate(start_date, end_date).run_data()
     yield_curve_data = YieldCurve(start_date, end_date).run_data()
     

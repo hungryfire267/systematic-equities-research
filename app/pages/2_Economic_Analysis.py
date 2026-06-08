@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parents[2]  
 
 DATA_DIR = BASE_DIR/"data"/ "raw"/ "macro"
 
