@@ -13,31 +13,15 @@ companies_paths_dict = {
 }
 
 industry_paths_dict = { 
-    "industry_returns": os.path.join(INDUSTRY_DIR, "returns.parquet")
+    "industry_returns": os.path.join(INDUSTRY_DIR, "industry_returns.parquet")
 }
 
 class Momentum: 
-    def __init__(self, weights: list, n: int): 
-        self.returns_df = pd.read_parquet(Path(r"data/raw/companies/returns.parquet"))
-        self.industry_returns = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/industry/industry_returns.parquet"))        
+    def __init__(self): 
+        self.returns_df = pd.read_parquet(companies_paths_dict["returns"])     
         self.returns_df["Date"] = pd.to_datetime(self.returns_df["Date"])
         self.returns_df = self.returns_df.set_index("Date")
         
-        assert (n > 0)
-        assert (len(weights) == n)
-        
-        self.factor_config = {
-            "mom_12_1": {
-                "score": None, 
-                "higher_is_better": True
-            }, 
-            "id": {
-                "score":None, 
-                "higher_is_better": True
-            }
-        }
-        
-        self.weights = weights
         
     def get_momentum(self, lookback=252, skip=21) -> pd.DataFrame:
         past_returns = self.returns_df.copy().shift(skip)
@@ -54,7 +38,6 @@ class Momentum:
         id_score = (up_days - down_days) / lookback
         id_score = id_score * np.sign(cumulative_returns)
         
-        
         return id_score 
     
     def get_momentum_ranks(self) -> pd.DataFrame:
@@ -66,14 +49,12 @@ class Momentum:
         return ranking_dict
         
     def run_data(self) -> pd.DataFrame: 
+        
         _, self.factor_config["mom_12_1"]["score"] = self.get_momentum()
         self.factor_config["id"]["score"] = self.information_discreteness()
         
         ranking_dict = self.get_momentum_ranks()
         
-        final_score = sum(
-            weight * rank for weight, rank in zip(self.weights, ranking_dict.values())
-        )
-        final_rank = final_score.rank(axis=1, pct=True)
+        
         
         return final_rank
