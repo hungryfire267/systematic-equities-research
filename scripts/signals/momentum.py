@@ -4,8 +4,7 @@ import pandas as pd
 from pathlib import Path
 from utils import cross_sectional_ranking
 
-
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 COMPANIES_DIR = BASE_DIR / "data" / "raw" / "companies"
 INDUSTRY_DIR = BASE_DIR / "data" / "raw" / "industry"
@@ -46,6 +45,5 @@ class Momentum:
         
         id_score = self.information_discreteness()
         id_df_dict["252_12"] = cross_sectional_ranking(id_score, True)
-        
         
         return momentum_df_dict, id_df_dict
