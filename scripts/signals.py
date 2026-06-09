@@ -93,112 +93,7 @@ class Fundamentals:
         return fundamental_signals
     
 
-class Reversal: 
-    def __init__(self, windows_list: list[int], weights: list[float]): 
-        self.returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/returns.parquet"))
-        self.asx_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/asx/asx_returns.parquet"))
-        self.industry_dict = pd.read_csv(Path(rf"{PROJECT_ROOT}/data/asx_companies.csv")).set_index("asxCode")["industry"].to_dict()
-        self.industry_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/industry/industry_returns.parquet"))
-        self.industry_df = pd.read_csv(Path(rf"{PROJECT_ROOT}/data/asx_companies.csv"))
-        self.industry_df["code"] =  [str(code) + ".AX" for code in list(self.industry_df["asxCode"])]
-        self.industry_dict = self.industry_df.set_index("code")["industry"].to_dict()
-        self.total_days = self.returns_df.shape[0]
 
-        self.rsr5_dict, self.rsr10_dict, self.rsr21_dict = dict(), dict(), dict()
-    
-        self.reversal_config, self.rsr_config = dict(), dict()
-        for window in windows_list: 
-            self.reversal_config[window] = {
-                "df": None, 
-                "higher_is_better": True
-            }
-            self.rsr_config[window] = {
-                "df": None, 
-                "higher_is_better": True
-            }
-        assert(weights.sum() == 1)
-        assert(len(weights) == len(windows_list))
-        
-        self.weights_dict = dict(zip(windows_list, weights))
-        
-        
-        
-        
-        
-
-    def get_Reversal(self) -> None: 
-        for window in self.reversal_config.keys(): 
-            cumulative_returns = (
-                1 + self.returns_df.rolling(window=window).apply(np.prod, raw=True)
-            ) - 1
-            self.reversal_config[window]["df"] = - cumulative_returns.reset_index()
-        
-
-    def get_rsr(self) -> None: 
-        rsr_dict = dict(), dict()
-        rsr_dict = dict()
-        print(self.returns_df.columns)
-        market_returns = self.asx_returns_df["^AXJO"]
-        company_list = list(self.returns_df.columns[1:])
-        for company in company_list: 
-            company_returns = self.returns_df[company]
-            industry = self.industry_dict[company]
-            industry_returns = self.industry_returns_df[industry]
-            total_returns = pd.concat([industry_returns, market_returns, company_returns], axis=1).dropna()
-            null_days = self.total_days - total_returns.shape[0]
-            y_returns = total_returns[company]
-            X_returns = total_returns.drop(columns=[company])
-            linear_model = LinearRegression().fit(X_returns, y_returns)
-            residuals = y_returns - linear_model.predict(X_returns)
-            residuals = residuals.reindex(range(0, residuals.index.max() + 1))
-            residuals = residuals.sort_index()
-            residuals.index = self.returns_df["Date"]
-            
-            
-            for window in self.rsr_config.keys(): 
-                self.rsr_dict[window][company] = - ((1 + residuals)).rolling(window=window).apply(np.prod, raw=True) -1
-        
-        for window in self.rsr_config.keys(): 
-            self.rsr_config[window]["df"] =  pd.DataFrame(rsr_dict[window]).reset_index()
-
-    
-    def get_reversal_ranks(self, reversal_type: str): 
-        reversal_dict = None
-        if reversal_type == "reversal": 
-            reversal_dict = self.reversal_config
-        elif reversal_type == "rsr": 
-            reversal_dict = self.rsr_config
-        else: 
-            raise ValueError("reversal_type must be either 'reversal' or 'rsr'")
-        
-        
-        for window, config in reversal_dict.items(): 
-            rank_score = cross_sectional_ranking(config["df"], config["higher_is_better"])
-            if (reversal_type == "reversal"): 
-                self.reversal_config[window]["rank"] = rank_score
-            else: 
-                self.rsr_config[window]["rank"] = rank_score
-             
-    def run_data(self) -> pd.DataFrame: 
-        self.get_rsr()
-        self.get_reversal_ranks("reversal")
-        self.get_reversal_ranks("rsr")
-        
-        # Combine ranks through ridge (after backtesting different combinations of weights, we found that giving more weight to shorter-term reversal signals yields better results)
-        
-        # For now we will use simple weights
-        
-        total_reversal_score = sum(
-            self.weights_dict[window] * self.reversal_config[window]["rank"] for window in self.weights_dict.keys()
-        )
-        total_rsr_score = sum(
-            self.weights_dict[window] * self.rsr_config[window]["rank"] for window in self.weights_dict.keys()
-        )
-            
-        final_score = 0.5 * total_reversal_score + 0.5 * total_rsr_score
-        final_rank = final_score.rank(axis=1, pct=True)
-        
-        return final_rank
     
     
             
@@ -552,29 +447,7 @@ class MeanVolatility:
         sigma_df = pd.DataFrame([sigma_dict])   
         return theta_df, mu_df, sigma_df
     
-class MomentumLiquidity: 
-    def __init__(self, momentum_weights: list, momentum_n, liquidity_window_list): 
-        self.momentum_weights = momentum_weights 
-        self.momentum_n = momentum_n 
-        self.liquidity_window_list = liquidity_window_list
-    
-    def build_momentum_liquidity_rank(self, momentum_rank, dv_rank) -> pd.DataFrame: 
-        momentum_dv_score = momentum_rank * dv_rank
-        momentum_dv_rank = momentum_dv_score.rank(axis = 1, pct = True, ascending = True)
-    
-        return momentum_dv_rank
-    
-    
-    def run_data(self) -> dict: 
-        momentum_rank = Momentum(self.momentum_weights, self.momentum_n).run_data()
-        dv_liquidity_dict, _ = Microstructure(self.liquidity_window_list)
-        
-        momentum_liquidity_dict = dict()
-        for window in self.liquidity_window_list: 
-            momentum_liquidity_dict[window] = self.build_momentum_liquidity_rank(
-                window, momentum_rank, dv_liquidity_dict[window]
-            )
-        return momentum_liquidity_dict
+
 
 class ReversalIlliquidity:
     def __init__(self, reversal_window_list, reversal_weight_list, liquidity_window_list):
