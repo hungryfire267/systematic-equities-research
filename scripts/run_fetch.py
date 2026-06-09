@@ -88,19 +88,25 @@ class ASXPipeline:
         self.asx_prices = self.dataframe_parser(asx_index[["Date", "Close"]])
         self.asx_returns = self.returns_parser(self.asx_prices, "returns")
         self.asx_log_returns = self.returns_parser(self.asx_prices, "log_returns")    
+        
+        print(self.asx_returns)
     
-        self.get_fundamental_metrics(self.prices)
-        self.industry_returns = self.get_sector_returns()
+        # self.get_fundamental_metrics(self.prices)
+        # self.industry_returns = self.get_sector_returns()
+        
+        
         
         self.company_export_to_parquet()
         self.asx_export_to_parquet()
-        self.industry_export_to_parquet()
-        self.fundamentals_export_to_parquet()
+        # self.industry_export_to_parquet()
+        # self.fundamentals_export_to_parquet()
         
         
-        company_data_dict, asx_data_dict, industry_data_dict, fundamentals_data_dict = self.store_file_dict()
+        # company_data_dict, asx_data_dict, industry_data_dict, fundamentals_data_dict = self.store_file_dict()
         
-        return company_data_dict, asx_data_dict, industry_data_dict, fundamentals_data_dict
+        # return company_data_dict, asx_data_dict, industry_data_dict, fundamentals_data_dict
+        
+        return dict(), dict(), dict(), dict()
     
     def company_export_to_parquet(self): 
         self.prices.to_parquet(self.company_paths_dict["prices"], index=False, engine="pyarrow")

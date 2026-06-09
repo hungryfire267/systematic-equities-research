@@ -5,7 +5,7 @@ import os
 import pandas as pd
 from pathlib import Path
 import seaborn as sns
-from scripts.signals_functions import date_parser
+from signals_functions import date_parser
 from sklearn.linear_model import LinearRegression
 from statsmodels.tsa.stattools import coint
 import statsmodels.api as sm
@@ -13,6 +13,22 @@ import statsmodels.api as sm
 UNIVERSE_PATH = Path("data/asx_companies.csv")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+COMPANIES_DIR = PROJECT_ROOT / "data" / "raw" / "companies"
+
+companies_paths_dict = {
+    ""
+    "market_cap": os.path.join(COMPANIES_DIR, "market_cap.parquet"),
+    "prices": os.path.join(COMPANIES_DIR, "prices.parquet"),
+    "returns": os.path.join(COMPANIES_DIR, "returns.parquet"),                 
+    "volume": os.path.join(COMPANIES_DIR, "volume.parquet")
+}
+
+
+
+
+
+
 
 def cross_sectional_ranking(df: pd.DataFrame, higher_is_better: bool) -> pd.DataFrame: 
     mean = df.mean(axis=1)
@@ -450,7 +466,7 @@ class Microstructure:
         for window, min_periods in self.window_periods.items(): 
             liquidity = dollar_volume.rolling(window=window, min_periods=min_periods).mean()
             rank = liquidity.rank(axis=1, pct=True, ascending=True)
-            dv_liquidity_dict[window] = rank
+            dv_liquidity_dict[window] = rank.reset_index()
         return dv_liquidity_dict
 
     def get_amihud(self):
@@ -460,23 +476,24 @@ class Microstructure:
         
         for window, min_periods in self.window_periods.items():
             amihud_smoothed = amihud.rolling(window=window, min_periods=min_periods).mean()
-        amihud_rank = 1 - amihud_smoothed
-        amihud_dict[window] = amihud_rank
+            amihud_rank = cross_sectional_ranking(amihud_smoothed, higher_is_better=False)
+            amihud_dict[window] = amihud_rank.reset_index()
         
         return amihud_dict
     
     def get_data(self): 
         dv_liquidity_dict = self.dollar_volume_liquidity() 
-        amihud_dict_dict = self.get_amihud()
+        amihud_illiqudity_dict = self.get_amihud()
         
-        return dv_liquidity_dict, amihud_dict_dict
+        return dv_liquidity_dict, amihud_illiqudity_dict
         
 class BetaFeatures: 
     def __init__(self, window_list: list, weights_list: list): 
-        companies_df = pd.read_csv(rf"{PROJECT_ROOT}/asx_companies.csv")
-        
+        companies_df = pd.read_csv(rf"{PROJECT_ROOT}/data/asx_companies.csv")
         
         returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/companies/returns.parquet"))
+        
+        print(returns_df)
         asx_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/asx/asx_returns.parquet"))
         industry_returns_df = pd.read_parquet(Path(rf"{PROJECT_ROOT}/data/raw/industry/industry_returns.parquet"))
         
@@ -486,9 +503,6 @@ class BetaFeatures:
         self.companies_df = companies_df
         
         self.window_list = window_list
-        
-        assert(len(weights_list) == 2)
-        assert(weights_list.sum() == 1)
         
         self.weights_list = weights_list
     
@@ -524,8 +538,7 @@ class BetaFeatures:
         return market_beta_df, market_vol_df
     
     def get_industry_company_return(self, company: str) -> pd.Series: 
-        company_final = company.split(".")[0]
-        
+        company_final = company.split(".")[0].upper()
         condition = (self.companies_df["asxCode"] == company_final)
         company_industry = self.companies_df.loc[condition, "industry"].iloc[0]
 
@@ -556,26 +569,21 @@ class BetaFeatures:
         
     
     def get_data(self) -> tuple[dict, dict]: 
-        beta_df_dict, vol_df_dict = dict(), dict()
+        
+        market_beta_df_dict, market_vol_df_dict = dict(), dict() 
+        industry_beta_df_dict, industry_vol_df_dict = dict(), dict()
+        
         for window in self.window_list: 
             market_beta_df, market_vol_df = self.get_market_rolling_beta_vol(window)
             industry_beta_df, industry_vol_df = self.get_industry_rolling_beta_vol(window)
             
-            market_beta_rank = cross_sectional_ranking(market_beta_df, higher_is_better = False)
-            industry_beta_rank = cross_sectional_ranking(industry_beta_df, higher_is_better = False)
-            market_vol_rank = cross_sectional_ranking(market_vol_df, higher_is_better = False)
-            industry_vol_rank = cross_sectional_ranking(industry_vol_df, higher_is_better = False)
+            market_beta_df_dict[window] = cross_sectional_ranking(market_beta_df, higher_is_better = False).reset_index()
+            industry_beta_df_dict[window] = cross_sectional_ranking(industry_beta_df, higher_is_better = False).reset_index()
+            market_vol_df_dict[window] = cross_sectional_ranking(market_vol_df, higher_is_better = False).reset_index()
+            industry_vol_df_dict[window] = cross_sectional_ranking(industry_vol_df, higher_is_better = False).reset_index()
+    
             
-            combined_beta_score = (self.weights_list[0] * market_beta_rank + self.weights_list[1] * industry_beta_rank)
-            combined_vol_score = (self.weights_list[0] * market_vol_rank + self.weights_list[1] * industry_vol_rank)
-            
-            combined_beta_rank = combined_beta_score.rank(axis=1, pct=True, ascending=False)
-            combined_vol_rank = combined_vol_score.rank(axis=1, pct=True, ascending=False)
-            
-            beta_df_dict[window] = combined_beta_rank
-            vol_df_dict[window] = combined_vol_rank
-            
-        return beta_df_dict, vol_df_dict
+        return market_beta_df_dict, market_vol_df_dict, industry_beta_df_dict, industry_vol_df_dict
          
          
         
