@@ -2,6 +2,8 @@ import numpy as np
 import os
 import pandas as pd
 from pathlib import Path
+from utils import cross_sectional_ranking
+
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
@@ -10,10 +12,6 @@ INDUSTRY_DIR = BASE_DIR / "data" / "raw" / "industry"
 
 companies_paths_dict = {
     "returns": os.path.join(COMPANIES_DIR, "returns.parquet")
-}
-
-industry_paths_dict = { 
-    "industry_returns": os.path.join(INDUSTRY_DIR, "industry_returns.parquet")
 }
 
 class Momentum: 
@@ -39,22 +37,15 @@ class Momentum:
         id_score = id_score * np.sign(cumulative_returns)
         
         return id_score 
-    
-    def get_momentum_ranks(self) -> pd.DataFrame:
-        ranking_dict = dict()  
-        for factor, config in self.factor_config.items(): 
-            rank = config["score"].rank(axis=1, pct=True, ascending=config["higher_is_better"])
-            ranking_dict[factor] = rank
-        
-        return ranking_dict
         
     def run_data(self) -> pd.DataFrame: 
+        momentum_df_dict, id_df_dict = dict(), dict()
         
-        _, self.factor_config["mom_12_1"]["score"] = self.get_momentum()
-        self.factor_config["id"]["score"] = self.information_discreteness()
+        _, momentum_score = self.get_momentum()
+        momentum_df_dict["252_12"] = cross_sectional_ranking(momentum_score, True)
         
-        ranking_dict = self.get_momentum_ranks()
+        id_score = self.information_discreteness()
+        id_df_dict["252_12"] = cross_sectional_ranking(id_score, True)
         
         
-        
-        return final_rank
+        return momentum_df_dict, id_df_dict
