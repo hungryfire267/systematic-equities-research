@@ -361,58 +361,7 @@ class PairsTrading:
         print(self.similar_companies)
         self.run_cointegration_tests()
             
-class MeanVolatility: 
-    
-    def __init__(self, windows) -> None: 
-        # returns_df = pipeline.FetchData("returns")
-        self.windows = windows
-        returns_df = pd.read_parquet(Path(r"data/raw/companies/returns.parquet"))
-        self.df = returns_df
-    
-    def get_rolling_realised_volatility(self, X: np.ndarray) -> np.ndarray:
-        rv = np.log(np.sqrt((X ** 2).rolling(self.windows).sum())) 
-        rv = rv.replace([np.inf, -np.inf], np.nan).dropna()
-        rv = rv.reset_index() 
-        rv = rv.drop(columns=["index"])
-        return rv.to_numpy().flatten()
-    
-    def AR_OLS(self, X: np.ndarray): 
-        X_curr = X[1:]
-        X_prev = X[:-1]
-        
-        regression_model = LinearRegression()
-        regression_model.fit(X_prev.reshape(-1, 1), X_curr)
-        a_hat = regression_model.intercept_
-        phi_hat = regression_model.coef_[0]
-        
-        mu_hat = a_hat / (1 - phi_hat)
-        kappa_hat = -np.log(phi_hat)
-        errors = X_curr - (a_hat + phi_hat * X_prev)
-        var_eps = np.var(errors, ddof=2)
-        sigma_hat = np.sqrt(var_eps * (2.0 * kappa_hat) / (1.0 - np.exp(-2.0 * kappa_hat)))
-        
-        return mu_hat, kappa_hat, sigma_hat
-    
-    
-    def run(self): 
-        companies_list = list(self.df.columns[1:])
-        kappa_dict, mu_dict, sigma_dict = dict(), dict(), dict()
-        i = 0 
-        for company in companies_list: 
-            company_returns = self.df[company]
-            rv = self.get_rolling_realised_volatility(company_returns)
-            mu_hat, kappa_hat, sigma_hat = self.AR_OLS(rv)
-            kappa_dict[company] = kappa_hat
-            mu_dict[company] = mu_hat
-            sigma_dict[company] = sigma_hat
-            i += 1
-            print(mu_hat)
-            if (i == 5):
-                break
-        theta_df = pd.DataFrame([theta_dict])
-        mu_df = pd.DataFrame([mu_dict])
-        sigma_df = pd.DataFrame([sigma_dict])   
-        return theta_df, mu_df, sigma_df
+
     
 
 
