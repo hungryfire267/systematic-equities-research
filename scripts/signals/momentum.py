@@ -2,7 +2,7 @@ import numpy as np
 import os
 import pandas as pd
 from pathlib import Path
-from utils import cross_sectional_ranking
+from scripts.signals.utils import cross_sectional_ranking, date_parser
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -15,9 +15,7 @@ companies_paths_dict = {
 
 class Momentum: 
     def __init__(self): 
-        self.returns_df = pd.read_parquet(companies_paths_dict["returns"])     
-        self.returns_df["Date"] = pd.to_datetime(self.returns_df["Date"])
-        self.returns_df = self.returns_df.set_index("Date")
+        self.returns_df = date_parser(pd.read_parquet(companies_paths_dict["returns"]))
         
         
     def get_momentum(self, lookback=252, skip=21) -> pd.DataFrame:
@@ -41,9 +39,14 @@ class Momentum:
         momentum_df_dict, id_df_dict = dict(), dict()
         
         _, momentum_score = self.get_momentum()
-        momentum_df_dict["252_12"] = cross_sectional_ranking(momentum_score, True)
+        momentum_df_dict["252_12"] = cross_sectional_ranking(momentum_score, True).reset_index()
         
         id_score = self.information_discreteness()
-        id_df_dict["252_12"] = cross_sectional_ranking(id_score, True)
+        id_df_dict["252_12"] = cross_sectional_ranking(id_score, True).reset_index()
         
-        return momentum_df_dict, id_df_dict
+        final_momentum_dict = {
+            "momentum": momentum_df_dict, 
+            "id": id_df_dict
+        }
+        
+        return final_momentum_dict
