@@ -1,7 +1,11 @@
 import numpy as np
 import pandas as pd
 
-from signals import BetaFeatures, Microstructure
+from scripts.signals.beta import BetaFeatures
+from scripts.signals.microstructure import Microstructure
+from scripts.signals.momentum import Momentum
+from scripts.signals.pvo import PVO
+
 
 def reshape_feature_dict(df_dict, feature_name): 
     melted_dfs = [] 
@@ -21,11 +25,42 @@ def reshape_feature_dict(df_dict, feature_name):
     ml_df = ml_df.reset_index()
     return ml_df
 
-beta_windows = np.array([10, 21, 63, 126])
+signal_configs = [ 
+    {
+        "class": BetaFeatures, 
+        "params": {
+            "window_list": np.array([10, 21, 63, 126])
+        }
+    },
+    {
+        "class": Microstructure, 
+        "params": {
+            "window_list": np.array([21, 63, 126])
+        }
+    },
+    {
+        "class": Momentum,
+        "params": {}
+    }, 
+    {
+        "class": PVO, 
+        "params": {
+            "span_list": [(26, 12)],
+            "extreme_list": [(0.01, 0.99)]
+        }
+    }, 
+    {
+        "class": Reversal
+    }
+]
 
-market_beta_df_dict, market_vol_df_dict, industry_beta_df_dict, industry_vol_df_dict = BetaFeatures(beta_windows).get_data()
 
-market_beta_features = reshape_feature_dict(market_beta_df_dict, "market_beta")
-industry_beta_features = reshape_feature_dict(industry_beta_df_dict, "industry_beta")
-market_resid_vol_features = reshape_feature_dict(market_vol_df_dict, "market_resid_vol")
-industry_resid_vol_features = reshape_feature_dict(industry_vol_df_dict, "market_resid_vol")
+final_features = {}
+for config in signal_configs:
+    signal = config["class"](**config["params"])
+    signal_dict = signal.run_data() 
+    
+    for feature, feature_dict in signal_dict.items(): 
+        final_features[feature] = reshape_feature_dict(feature_dict, feature)
+
+print(final_features)
