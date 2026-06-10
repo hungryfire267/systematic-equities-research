@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 from pathlib import Path
-from utils import date_parser, cross_sectional_ranking
+from scripts.signals.utils import date_parser, cross_sectional_ranking
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -88,7 +88,7 @@ class BetaFeatures:
             
         
     
-    def get_data(self) -> tuple[dict, dict, dict, dict]: 
+    def run_data(self) -> tuple[dict, dict, dict, dict]: 
         
         market_beta_df_dict, market_vol_df_dict = dict(), dict() 
         industry_beta_df_dict, industry_vol_df_dict = dict(), dict()
@@ -101,6 +101,12 @@ class BetaFeatures:
             industry_beta_df_dict[window] = cross_sectional_ranking(industry_beta_df, higher_is_better = False).reset_index()
             market_vol_df_dict[window] = cross_sectional_ranking(market_vol_df, higher_is_better = False).reset_index()
             industry_vol_df_dict[window] = cross_sectional_ranking(industry_vol_df, higher_is_better = False).reset_index()
-    
+
+        final_betafeatures_dict = {
+            "market_beta": market_beta_df_dict,
+            "industry_beta": industry_beta_df_dict,
+            "market_resid_vol": market_vol_df_dict,
+            "industry_resid_vol": industry_vol_df_dict
+        }
             
-        return market_beta_df_dict, market_vol_df_dict, industry_beta_df_dict, industry_vol_df_dict
+        return final_betafeatures_dict
