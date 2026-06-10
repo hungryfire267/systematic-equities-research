@@ -253,39 +253,6 @@ class KalmanFilterBuilder:
         self.window = window 
   
         
-class PVO: 
-    def __init__(
-        self, extreme_list: tuple[float, float], signal_percentile: tuple[float, float], span_list: tuple[int, int]
-    ): 
-        self.volume_df = pd.read_parquet(Path(r"data/raw/companies/volume.parquet"))
-        
-        self.slow, self.fast = span_list[0], span_list[1]
-        self.lower_extreme, self.upper_extreme = extreme_list[0], extreme_list[1]
-        self.lower_signal, self.upper_signal = signal_percentile[0], signal_percentile[1]
-        
-        
-    def compute_ema(self, df: pd.DataFrame, span: int) -> pd.DataFrame:
-        return self.volume_df.ewm(span=span, adjust=False).mean()
-    
-    def calculate_pvo(self) -> None: 
-        ema_slow = self.compute_ema(self.volume_df, span=self.slow_span)
-        ema_fast = self.compute_ema(self.volume_df, span=self.fast_span)
-        pvo_df = (ema_fast - ema_slow)/ema_slow
-        
-        pvo_df = pvo_df.clip(lower=pvo_df.quantile(self.lower), upper=pvo_df.quantile(self.upper)) # Capping the extremes
-        self.pvo_df = pvo_df
-    
-    def get_pvo_signals(self): 
-        ranks = self.pvo_df.rank(axis=1, pct=True)
-        pvo_signal_df = pd.DataFrame(0, index=self.pvo_df.index, columns=self.pvo_df.columns)
-        pvo_signal_df[ranks >= self.upper_signal] = 1
-        pvo_signal_df[ranks <= self.lower_signal] = -1
-        self.pvo_signal_df = pvo_signal_df
-    
-    def run(self): 
-        self.calculate_pvo()
-        self.get_pvo_signals()   
-
 class PairsTrading: 
     def __init__(self, window): 
         self.company_df = pd.read_csv(UNIVERSE_PATH)
@@ -449,35 +416,7 @@ class MeanVolatility:
     
 
 
-class ReversalIlliquidity:
-    def __init__(self, reversal_window_list, reversal_weight_list, liquidity_window_list):
-        assertion_match_list = f"Window mismatch: reversal_window_list - {reversal_window_list} does \
-            not match with illiquidity_window_list {liquidity_window_list}"
-        assert(
-            reversal_window_list == liquidity_window_list, assertion_match_list
-        )
-        
-        self.window_list = reversal_weight_list 
-        self.reversal_weight_list = reversal_weight_list
-        
-    def build_reversal_illiquidity_rank(self, reversal_rank, amihud_rank): 
-        reversal_amihud_score = reversal_rank * amihud_rank
-        reversal_amihud_rank = cross_sectional_ranking(reversal_amihud_score, higher_is_better=True)
-        
-        return reversal_amihud_rank
-                 
-                 
-    def run_data(self) -> dict:
-        reversal_dict = Reversal(self.window_list, self.reversal_weight_list)
-        _, amihud_dict = Microstructure(self.window_list)
-        
-        reversal_illiquidity_dict = dict()
-        for window in self.window_list: 
-            reversal_rank = reversal_dict[window]
-            amihud_rank = amihud_dict[window]
-            reversal_illiquidity_dict[window] = self.build_reversal_illiquidity(reversal_rank, amihud_rank)
-        
-        return reversal_illiquidity_dict
+
                 
         
     
