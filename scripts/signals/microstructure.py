@@ -2,7 +2,7 @@ import numpy as np
 import os
 import pandas as pd
 from pathlib import Path
-from utils import date_parser, cross_sectional_ranking
+from scripts.signals.utils import date_parser, cross_sectional_ranking
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -52,8 +52,14 @@ class Microstructure:
         
         return amihud_dict
     
-    def get_data(self): 
+    def run_data(self): 
         dv_liquidity_dict = self.dollar_volume_liquidity() 
         amihud_illiquidity_dict = self.get_amihud()
         
-        return dv_liquidity_dict, amihud_illiquidity_dict 
+        final_microstructure_dict = { 
+            "dv_liquidity": dv_liquidity_dict,
+            "amihud": amihud_illiquidity_dict 
+        }
+        return final_microstructure_dict
+    
+ 

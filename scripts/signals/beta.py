@@ -85,8 +85,6 @@ class BetaFeatures:
             
         return industry_beta_df, industry_vol_df
 
-            
-        
     
     def run_data(self) -> tuple[dict, dict, dict, dict]: 
         
