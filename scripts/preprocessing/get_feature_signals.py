@@ -5,6 +5,9 @@ from scripts.signals.beta import BetaFeatures
 from scripts.signals.microstructure import Microstructure
 from scripts.signals.momentum import Momentum
 from scripts.signals.pvo import PVO
+from scripts.signals.reversal import Reversal
+from scripts.signals.reversal_illiquidity import ReversalIlliquidity
+
 
 
 def reshape_feature_dict(df_dict, feature_name): 
@@ -27,36 +30,53 @@ def reshape_feature_dict(df_dict, feature_name):
 
 signal_configs = [ 
     {
+        "name": "Beta",
         "class": BetaFeatures, 
         "params": {
             "window_list": np.array([10, 21, 63, 126])
         }
     },
     {
+        "name": "Microstructure",
         "class": Microstructure, 
         "params": {
             "window_list": np.array([21, 63, 126])
         }
     },
     {
+        "name": "Momentum",
         "class": Momentum,
         "params": {}
     }, 
     {
+        "name": "PVO",
         "class": PVO, 
         "params": {
-            "span_list": [(26, 12)],
-            "extreme_list": [(0.01, 0.99)]
+            "span_list": np.array([(26, 12)]),
+            "extreme_list": np.array([(0.01, 0.99)])
         }
     }, 
     {
-        "class": Reversal
+        "name": "Reversal",
+        "class": Reversal, 
+        "params": {
+            "windows_list": np.array([5, 10, 21])
+        }
+    },
+    {
+        "name": "Reversal Illiquidity",
+        "class": ReversalIlliquidity, 
+        "params": {
+            "reversal_window_list": np.array([5, 10, 21]),
+            "illiquidity_window_list": np.array([21, 63, 126])
+        }
     }
 ]
 
 
 final_features = {}
 for config in signal_configs:
+    print(f"Running the data for {config['name']}")
     signal = config["class"](**config["params"])
     signal_dict = signal.run_data() 
     

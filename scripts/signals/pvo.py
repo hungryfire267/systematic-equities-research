@@ -38,6 +38,6 @@ class PVO:
     def run_data(self) -> dict: 
         pvo_df_dict = dict()
         for extremes, spans in zip(self.extreme_list, self.span_list): 
-            keys = (extremes, spans)
+            keys = (tuple(extremes), tuple(spans))
             pvo_df_dict[keys] = self.calculate_pvo(extremes, spans)
         return {"pvo": pvo_df_dict}
