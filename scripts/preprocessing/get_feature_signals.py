@@ -4,6 +4,7 @@ import pandas as pd
 from scripts.signals.beta import BetaFeatures
 from scripts.signals.microstructure import Microstructure
 from scripts.signals.momentum import Momentum
+from scripts.signals.momentum_liquidity import MomentumLiquidity
 from scripts.signals.pvo import PVO
 from scripts.signals.reversal import Reversal
 from scripts.signals.reversal_illiquidity import ReversalIlliquidity
@@ -48,6 +49,13 @@ signal_configs = [
         "class": Momentum,
         "params": {}
     }, 
+    {
+        "name": "Momentum Liquidity",
+        "class": MomentumLiquidity, 
+        "params": {
+            "momentum_weights": 
+        }
+    },
     {
         "name": "PVO",
         "class": PVO, 
