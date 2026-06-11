@@ -1,7 +1,9 @@
+from functools import reduce
 import numpy as np
 import pandas as pd
 
 from scripts.signals.beta import BetaFeatures
+from scripts.signals.mean_volatility import MeanVolatility
 from scripts.signals.microstructure import Microstructure
 from scripts.signals.momentum import Momentum
 from scripts.signals.momentum_liquidity import MomentumLiquidity
@@ -27,6 +29,7 @@ def reshape_feature_dict(df_dict, feature_name):
     ml_df = pd.concat(melted_dfs, axis=1).reset_index()
     ml_df = ml_df.sort_values(by=['Date', 'Ticker'], ascending=[True, True])
     ml_df = ml_df.reset_index()
+    ml_df = ml_df.drop(columns=["index"])
     return ml_df
 
 signal_configs = [ 
@@ -37,6 +40,14 @@ signal_configs = [
             "window_list": np.array([10, 21, 63, 126])
         }
     },
+    {
+        "name": "Mean Volatility", 
+        "class": MeanVolatility, 
+        "params": {
+            "windows_list": np.array([5, 10, 21, 63]), 
+            "set_window": 21
+        }
+    }, 
     {
         "name": "Microstructure",
         "class": Microstructure, 
@@ -53,7 +64,7 @@ signal_configs = [
         "name": "Momentum Liquidity",
         "class": MomentumLiquidity, 
         "params": {
-            "momentum_weights": 
+            "liquidity_window_list":  np.array([21, 63, 126])
         }
     },
     {
@@ -83,12 +94,28 @@ signal_configs = [
 
 
 final_features = {}
+parameters_features = {}
 for config in signal_configs:
     print(f"Running the data for {config['name']}")
     signal = config["class"](**config["params"])
     signal_dict = signal.run_data() 
     
+    
+    name = config["name"]
+    
+    summary_feature_dict = dict()
     for feature, feature_dict in signal_dict.items(): 
-        final_features[feature] = reshape_feature_dict(feature_dict, feature)
-
+        if (name == "Mean Volatility" and feature == "parameters"): 
+            parameters_features[name] = feature_dict
+            continue
+        else:
+            summary_feature_dict[feature] = reshape_feature_dict(feature_dict, feature)
+            
+    merged_features = reduce(
+        lambda left, right: pd.merge(
+            left, right, on=["Date", "Ticker"], how="outer"
+        ), summary_feature_dict.values()
+    )
+    final_features[name] = merged_features
+    
 print(final_features)
