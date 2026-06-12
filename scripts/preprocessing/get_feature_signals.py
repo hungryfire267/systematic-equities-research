@@ -1,6 +1,8 @@
 from functools import reduce
 import numpy as np
+import os
 import pandas as pd
+from pathlib import Path
 
 from scripts.signals.beta import BetaFeatures
 from scripts.signals.mean_volatility import MeanVolatility
@@ -11,7 +13,20 @@ from scripts.signals.pvo import PVO
 from scripts.signals.reversal import Reversal
 from scripts.signals.reversal_illiquidity import ReversalIlliquidity
 
+BASE_DIR = Path(__file__).resolve().parents[2]
+PROCESSED_DIR = BASE_DIR / "data" / "processed"
+PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
+processed_paths_dict = {
+    "beta": os.path.join(PROCESSED_DIR, "beta.parquet"),
+    "mean_volatility": os.path.join(PROCESSED_DIR, "mean_volatility.parquet"),
+    "microstructure": os.path.join(PROCESSED_DIR, "microstructure.parquet"),
+    "momentum": os.path.join(PROCESSED_DIR, "momentum.parquet"), 
+    "momentum_liquidity": os.path.join(PROCESSED_DIR, "momentum_liquidity.parquet"),
+    "pvo": os.path.join(PROCESSED_DIR, "pvo.parquet"),
+    "reversal": os.path.join(PROCESSED_DIR, "reversal.parquet"),
+    "reversal_illiquidity": os.path.join(PROCESSED_DIR, "reversal_illiquidity.parquet")
+}
 
 def reshape_feature_dict(df_dict, feature_name): 
     melted_dfs = [] 
@@ -34,14 +49,14 @@ def reshape_feature_dict(df_dict, feature_name):
 
 signal_configs = [ 
     {
-        "name": "Beta",
+        "name": "beta",
         "class": BetaFeatures, 
         "params": {
             "window_list": np.array([10, 21, 63, 126])
         }
     },
     {
-        "name": "Mean Volatility", 
+        "name": "mean_volatility", 
         "class": MeanVolatility, 
         "params": {
             "windows_list": np.array([5, 10, 21, 63]), 
@@ -49,26 +64,26 @@ signal_configs = [
         }
     }, 
     {
-        "name": "Microstructure",
+        "name": "microstructure",
         "class": Microstructure, 
         "params": {
             "window_list": np.array([21, 63, 126])
         }
     },
     {
-        "name": "Momentum",
+        "name": "momentum",
         "class": Momentum,
         "params": {}
     }, 
     {
-        "name": "Momentum Liquidity",
+        "name": "momentum_liquidity",
         "class": MomentumLiquidity, 
         "params": {
             "liquidity_window_list":  np.array([21, 63, 126])
         }
     },
     {
-        "name": "PVO",
+        "name": "pvo",
         "class": PVO, 
         "params": {
             "span_list": np.array([(26, 12)]),
@@ -76,14 +91,14 @@ signal_configs = [
         }
     }, 
     {
-        "name": "Reversal",
+        "name": "reversal",
         "class": Reversal, 
         "params": {
             "windows_list": np.array([5, 10, 21])
         }
     },
     {
-        "name": "Reversal Illiquidity",
+        "name": "reversal_illiquidity",
         "class": ReversalIlliquidity, 
         "params": {
             "reversal_window_list": np.array([5, 10, 21]),
@@ -91,7 +106,6 @@ signal_configs = [
         }
     }
 ]
-
 
 final_features = {}
 parameters_features = {}
@@ -105,7 +119,7 @@ for config in signal_configs:
     
     summary_feature_dict = dict()
     for feature, feature_dict in signal_dict.items(): 
-        if (name == "Mean Volatility" and feature == "parameters"): 
+        if (name == "mean_volatility" and feature == "parameters"): 
             parameters_features[name] = feature_dict
             continue
         else:
@@ -117,5 +131,6 @@ for config in signal_configs:
         ), summary_feature_dict.values()
     )
     final_features[name] = merged_features
+    merged_features.to_parquet(processed_paths_dict[name], index=False, engine="pyarrow")
     
 print(final_features)
