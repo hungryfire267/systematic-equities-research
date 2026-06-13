@@ -92,13 +92,13 @@ class ASXPipeline:
         print(self.asx_returns)
     
         # self.get_fundamental_metrics(self.prices)
-        # self.industry_returns = self.get_sector_returns()
+        self.industry_returns = self.get_sector_returns()
         
-        
+        print(self.industry_returns)
         
         self.company_export_to_parquet()
         self.asx_export_to_parquet()
-        # self.industry_export_to_parquet()
+        self.industry_export_to_parquet()
         # self.fundamentals_export_to_parquet()
         
         

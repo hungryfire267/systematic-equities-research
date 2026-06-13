@@ -38,14 +38,16 @@ class IC:
         ic_df = pd.DataFrame(ic_rows)
         return ic_df
 
-    def run_data(self) -> dict:
+    def run_data(self) -> tuple[dict, pd.DataFrame]:
         self.merge_dfs()
         
+        ic_dict = {}
         results_dict = {}
         
         
         for factor in self.factor_list: 
             ic_df = self.calculate(factor, "future_return_5d")
+            ic_dict[factor] = ic_df
             ic = ic_df["IC"].dropna()
         
             results_dict[factor] = {
@@ -58,4 +60,4 @@ class IC:
         
         results_df = pd.DataFrame(results_dict)
             
-        return results_df
+        return ic_dict, results_df
