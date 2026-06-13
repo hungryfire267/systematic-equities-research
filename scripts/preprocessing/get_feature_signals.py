@@ -132,5 +132,5 @@ for config in signal_configs:
     )
     final_features[name] = merged_features
     merged_features.to_parquet(processed_paths_dict[name], index=False, engine="pyarrow")
-    
+
 print(final_features)
