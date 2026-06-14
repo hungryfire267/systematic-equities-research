@@ -24,5 +24,8 @@ class Quintile:
     def run_data(self): 
         self.merge_dfs()
         
+        for factor in self.factor_list: 
+            
+            
         print(self.factor_list)
             
