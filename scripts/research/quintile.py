@@ -18,9 +18,7 @@ class Quintile:
         ]
         
     def merge_dfs(self) -> pd.DataFrame: 
-        self.df = pd.merge(
-            left=self.return_df,
-            right=self.signal_df,
+        self.df = pd.merge(left=self.return_df, right=self.signal_df,
             how="inner",
             on=["Date", "Ticker"]
         )
@@ -100,47 +98,20 @@ class Quintile:
 
         return quintile_returns, average_returns
         
-    def run_data(
-        self,
-        factor_col: str | None = None,
-        target_col: str = "future_return_5d"
-    ) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]: 
+    def run_data(self, target_col: str = "future_return_5d") -> tuple[dict[str, pd.DataFrame], pd.DataFrame]: 
         self.merge_dfs()
-        
-        factors = [factor_col] if factor_col is not None else self.factor_list
-        quintile_dict = {}
-        summary_rows = []
 
-        for factor in factors:
+        quintile_dict, summary_dict = dict(), dict()
+
+        for factor in self.factor_list:
             quintile_returns, average_returns = self.calculate(factor, target_col)
             quintile_dict[factor] = quintile_returns
 
             summary = average_returns.copy()
             summary.insert(0, "factor", factor)
             summary.insert(1, "target", target_col)
-            summary_rows.append(summary)
 
-        summary_df = pd.concat(summary_rows, ignore_index=True)
-        return quintile_dict, summary_df
+            summary_dict[factor] = summary
+        return quintile_dict, summary_dict
 
-    def plot_quintiles(
-        self,
-        average_returns: pd.DataFrame,
-        title: str | None = None
-    ) -> tuple[plt.Figure, plt.Axes]:
-        plot_df = average_returns[
-            average_returns["quintile"].apply(lambda x: isinstance(x, (int, np.integer)))
-        ]
-
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.bar(
-            plot_df["quintile"].astype(str),
-            plot_df["mean_forward_return"]
-        )
-        ax.axhline(0, linestyle="--", linewidth=1)
-        ax.set_xlabel("Quintile")
-        ax.set_ylabel("Mean forward return")
-        ax.set_title(title or "Mean Forward Return by Signal Quintile")
-        plt.tight_layout()
-
-        return fig, ax
+    

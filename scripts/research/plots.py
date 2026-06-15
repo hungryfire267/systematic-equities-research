@@ -4,6 +4,9 @@ import pandas as pd
 import seaborn as sns
 
 
+from 
+
+
 category_cols = { 
     "beta": ["market_beta", "industry_beta", "market_resid_vol", "industry_resid_vol"], 
     "mean_volatility": ["mean_volatility"],
@@ -100,6 +103,37 @@ def plot_ic_summary_bar(ic_df_dict: pd.DataFrame, summary_df: pd.DataFrame, cate
         axs[i].set_ylabel(f"{metric}", fontsize=12)
         axs[i].barh(values.index, values.values)
         axs[i].axvline(0, linestyle="--")
+        
+        i += 1
+    plt.tight_layout()
+    plt.show()
+    
+def plot_quintiles(summary_dict: dict, category_type: str | None = None ) -> tuple[plt.Figure, plt.Axes]:
+    n = len(category_cols[category_type])
+    
+    if (n == 1):
+        fig, axs = plt.subplots(1, 1, figsize=(8, 6))
+    elif (n == 2): 
+        fig, axs = plt.subplots(1, 2, figsize=(16, 6)) 
+    elif (n == 4): 
+        fig, axs = plt.subplots(2, 2, figsize=(16, 12))       
+    
+    axs = np.atleast_1d(axs).ravel()
+    
+    i = 0
+    for signal, summary_df in summary_dict.items():
+        plot_df = summary_df[
+            summary_df["quintile"].apply(lambda x: isinstance(x, (int, np.integer)))
+        ]
+
+        axs[i].bar(
+            plot_df["quintile"].astype(str),
+            plot_df["mean_forward_return"]
+        )
+        axs[i].axhline(0, linestyle="--", linewidth=1)
+        axs[i].set_xlabel("Quintile")
+        axs[i].set_ylabel("Mean forward return")
+        axs[i].set_title(f"Mean Forward Return by {signal} Signal Quintile")
         
         i += 1
     plt.tight_layout()
