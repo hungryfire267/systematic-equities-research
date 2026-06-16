@@ -36,6 +36,11 @@ def plot_ic_timeseries(ic_df_dict: dict, category_name: str):
     plt.show()
 
 def plot_ic_summary_bar(ic_df_dict: pd.DataFrame, summary_df: pd.DataFrame, category_name: str, metric: str): 
+    metric_dict = { 
+        "mean_ic": "Mean IC", 
+        "ic_ir": "IC Information Ratio"
+    }
+    
     category_dicts = utils.get_final_dict(ic_df_dict, category_name)
     n = len(category_dicts.keys())
     
@@ -47,7 +52,7 @@ def plot_ic_summary_bar(ic_df_dict: pd.DataFrame, summary_df: pd.DataFrame, cate
         fig, axs = plt.subplots(2, 2, figsize=(16, 12))       
     
     
-    fig.suptitle(f"Summary statistics of {metric} across {category_name} signals", fontsize=14)
+    fig.suptitle(f"Summary statistics of {metric_dict[metric]} across {category_name} signals", fontsize=14)
     
     axs = np.atleast_1d(axs).ravel()
     
@@ -58,7 +63,7 @@ def plot_ic_summary_bar(ic_df_dict: pd.DataFrame, summary_df: pd.DataFrame, cate
         values = df.loc[metric].sort_values()
         
         axs[i].set_title(f"Bar plot of {category}", fontsize=12)
-        axs[i].set_xlabel(f"Signal name", fontsize=11)
+        axs[i].set_xlabel(f"{metric_dict[metric]}", fontsize=11)
         axs[i].set_ylabel(f"{metric}", fontsize=11)
         sns.barplot(
             x=values.values,
@@ -98,7 +103,29 @@ def plot_quintiles(quintile_df_dict: dict, summary_dict: dict, category_name):
             ].copy() 
             summary_category_list.append(plot_df)
         summary_category_df = pd.concat(summary_category_list, ignore_index=True)
-        sns.lineplot(summary_category_df, x="quintile", y = "mean_forward_return", hue="factor", ax=axs[i])
+        sns.lineplot(summary_category_df, x="quintile", y = "mean_forward_return", hue="factor", ax=axs[i], marker="o")
+        i += 1
+    plt.tight_layout()
+    plt.show()
+    
+def plot_correlation(correlation_dfs_dict: dict, category_type: str): 
+    n = len(correlation_dfs_dict.items())
+    
+    if (n == 2): 
+        fig, axs = plt.subplots(1, 2, figsize=(16, 6))
+
+    fig.suptitle(f"Correlation of {category_type} category signals", fontsize=14)
+    axs = axs.ravel()
+    i = 0 
+    for key, df in correlation_dfs_dict.items(): 
+        df.index = [x.split('_')[-1] for x in df.index]
+        df.columns = [x.split('_')[-1] for x in df.columns]
+        sns.heatmap(
+            df, ax=axs[i], cmap="crest", annot=True, linewidths=1
+        )
+        axs[i].set_title(f"{key} Correlation signal", fontsize=12)
+        axs[i].set_xlabel(f"{key} Window", fontsize=11)
+        axs[i].set_ylabel(f"{key} Window", fontsize=11)
         i += 1
     plt.tight_layout()
     plt.show()

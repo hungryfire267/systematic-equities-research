@@ -19,7 +19,7 @@ class MomentumLiquidity:
         
         momentum_liquidity_dict = dict()
         
-        momentum_rank = final_momentum_dict["momentum"]["252_12"].set_index("Date")
+        momentum_rank = final_momentum_dict["momentum"]["252_21"].set_index("Date")
         for window in self.liquidity_window_list: 
             dv_liquidity_rank = final_microstructure_dict["amihud"][window].set_index("Date")
             
