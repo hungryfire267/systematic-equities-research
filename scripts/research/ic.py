@@ -1,5 +1,9 @@
 import numpy as np
 import pandas as pd
+from scripts.research.stattests import (
+    get_lag_future_returns, 
+    newey_west_ttest
+)
 from scipy.stats import spearmanr
 import statsmodels.api as sm
 from statsmodels.stats.multitest import multipletests
@@ -74,8 +78,8 @@ class IC:
             ic_dict[factor] = ic_df
             ic = ic_df["IC"].dropna()
             
-            lag = self.get_lag_future_returns("future_return_5d")
-            newey_test_dict = self.newey_west_ttest(ic, lag)
+            lag = get_lag_future_returns("future_return_5d")
+            newey_test_dict = newey_west_ttest(ic, lag)
         
             results_dict[factor] = {
                 "mean_ic": ic.mean(),

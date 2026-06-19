@@ -2,6 +2,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from scripts.research.stattests import (
+    get_lag_future_returns, 
+    newey_west_ttest
+)
+
 
 class Quintile: 
     def __init__(self,  return_df: pd.DataFrame, signal_df: pd.DataFrame, n_quantiles: int = 5):
@@ -88,10 +93,16 @@ class Quintile:
 
         if 1 in wide_returns.columns and self.n_quantiles in wide_returns.columns:
             spread = wide_returns[self.n_quantiles] - wide_returns[1]
+            
+            lag = get_lag_future_returns("future_return_5d")
+            nw_result = newey_west_ttest(spread, lag)
+            
             spread_row = pd.DataFrame([{
                 "quintile": f"Q{self.n_quantiles}-Q1",
                 "mean_forward_return": spread.mean(),
                 "std_forward_return": spread.std(),
+                "nw_t_stat": nw_result["nw_t_stat"],
+                "nw_p_value": nw_result["nw_p_value"],
                 "n_periods": spread.count()
             }])
             average_returns = pd.concat([average_returns, spread_row], ignore_index=True)
@@ -101,7 +112,7 @@ class Quintile:
     def run_data(self, target_col: str = "future_return_5d") -> tuple[dict[str, pd.DataFrame], pd.DataFrame]: 
         self.merge_dfs()
 
-        quintile_dict, summary_dict = dict(), dict()
+        quintile_dict, summary_dict, spread_dict = dict(), dict(), dict()
 
         for factor in self.factor_list:
             quintile_returns, average_returns = self.calculate(factor, target_col)
@@ -109,9 +120,13 @@ class Quintile:
 
             summary = average_returns.copy()
             summary.insert(0, "factor", factor)
-            summary.insert(1, "target", target_col)
-
-            summary_dict[factor] = summary
-        return quintile_dict, summary_dict
+            
+            
+            summary_dict[factor] = summary.iloc[:-1]
+            spread_dict[factor] = summary.iloc[-1]   
+            
+        spread_df = pd.DataFrame(spread_dict)         
+        
+        return quintile_dict, summary_dict, spread_df
 
     
