@@ -1,11 +1,14 @@
-
+import pandas as pd
 
 category_cols = { 
     "beta": ["market_beta", "industry_beta", "market_resid_vol", "industry_resid_vol"], 
     "mean_volatility": ["mean_volatility"],
     "microstructure": ["dv_liquidity", "amihud"],
     "momentum": ["momentum", "id"],
-    "reversal": ["reversal", "rsr"]
+    "momentum_liquidity": ["momentum_liquidity"],
+    "pvo": ["pvo"],
+    "reversal": ["reversal", "rsr"],
+    "reversal_illiquidity": ["reversal_illiquidity_(5", "reversal_illiquidity_(10,", "reversal_illiquidity_(21"]
 }
 
 def get_category_dicts(category_name: str): 
@@ -35,3 +38,12 @@ def get_final_dict(ic_df_dict: dict, category_name: str) -> dict:
             category_dicts[col].append(signal_name)
     
     return category_dicts
+
+def summary_plot_final_df(summary_df: pd.DataFrame): 
+    
+    summary_plot_df = summary_df.T
+    summary_plot_df.columns = summary_plot_df.iloc[0]
+    summary_plot_df = summary_plot_df[1:].copy()
+    
+    return summary_plot_df
+

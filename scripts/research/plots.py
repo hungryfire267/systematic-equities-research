@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import re
 import seaborn as sns
 
 
@@ -14,6 +15,8 @@ def plot_ic_timeseries(ic_df_dict: dict, category_name: str):
         fig, axs = plt.subplots(1, 1, figsize=(8, 6))
     elif (n == 2): 
         fig, axs = plt.subplots(1, 2, figsize=(16, 6)) 
+    elif (n == 3): 
+        fig, axs = plt.subplots(1, 3, figsize=(24, 6))
     elif (n == 4): 
         fig, axs = plt.subplots(2, 2, figsize=(16, 12))       
     
@@ -35,7 +38,13 @@ def plot_ic_timeseries(ic_df_dict: dict, category_name: str):
             
     plt.show()
 
-def plot_ic_summary_bar(ic_df_dict: pd.DataFrame, summary_df: pd.DataFrame, category_name: str, metric: str): 
+def plot_ic_summary_bar(
+    ic_df_dict: pd.DataFrame, 
+    summary_df: pd.DataFrame, 
+    name_dict: pd.DataFrame,
+    category_name: str,
+    metric: str
+): 
     metric_dict = { 
         "mean_ic": "Mean IC", 
         "ic_ir": "IC Information Ratio"
@@ -48,6 +57,8 @@ def plot_ic_summary_bar(ic_df_dict: pd.DataFrame, summary_df: pd.DataFrame, cate
         fig, axs = plt.subplots(1, 1, figsize=(8, 6))
     elif (n == 2): 
         fig, axs = plt.subplots(1, 2, figsize=(16, 6)) 
+    elif (n == 3): 
+        fig, axs = plt.subplots(1, 3, figsize=(24, 6))
     elif (n == 4): 
         fig, axs = plt.subplots(2, 2, figsize=(16, 12))       
     
@@ -62,9 +73,12 @@ def plot_ic_summary_bar(ic_df_dict: pd.DataFrame, summary_df: pd.DataFrame, cate
         
         values = df.loc[metric].sort_values()
         
-        axs[i].set_title(f"Bar plot of {category}", fontsize=12)
+        print(category)
+        print(name_dict)
+        
+        axs[i].set_title(f"Bar plot of {name_dict[category]} signal with {metric_dict[metric]}", fontsize=12)
         axs[i].set_xlabel(f"{metric_dict[metric]}", fontsize=11)
-        axs[i].set_ylabel(f"{metric}", fontsize=11)
+        axs[i].set_ylabel(f"{name_dict[category]}", fontsize=11)
         sns.barplot(
             x=values.values,
             y=values.index,
@@ -73,6 +87,17 @@ def plot_ic_summary_bar(ic_df_dict: pd.DataFrame, summary_df: pd.DataFrame, cate
         )
 
         axs[i].axvline(0, linestyle="--")
+        
+        axs[i].tick_params(axis="x", labelrotation=45)
+        
+        yticks = axs[i].get_yticklabels()
+        factor_names = [tick.get_text() for tick in yticks]
+        new_labels = [
+            re.search(r"\d+$", name).group() if re.search(r"\d+$", name) else name
+            for name in factor_names
+        ]
+
+        axs[i].set_yticklabels(new_labels)
         
         i += 1
     plt.tight_layout()
@@ -92,9 +117,10 @@ def plot_quintiles(quintile_df_dict: dict, summary_dict: dict, category_name):
     
     axs = np.atleast_1d(axs).ravel()
     
+    fig.suptitle(f"Mean Forwards Returns against {category_name}")
     i = 0
     for category, category_signal_names in category_dicts.items(): 
-        axs[i].set_title(f"Mean Forward Returns by {category} category signal quantile")
+        axs[i].set_title(f"Mean Forward Returns against {category} category signal quantile")
         summary_category_list = []
         for signal in category_signal_names: 
             summary_df = summary_dict[signal]
@@ -104,6 +130,8 @@ def plot_quintiles(quintile_df_dict: dict, summary_dict: dict, category_name):
             summary_category_list.append(plot_df)
         summary_category_df = pd.concat(summary_category_list, ignore_index=True)
         sns.lineplot(summary_category_df, x="quintile", y = "mean_forward_return", hue="factor", ax=axs[i], marker="o")
+        axs[i].set_xlabel("Quintile", fontsize=11)
+        axs[i].set_ylabel("Mean Forward Return", fontsize=11)
         i += 1
     plt.tight_layout()
     plt.show()
@@ -111,11 +139,15 @@ def plot_quintiles(quintile_df_dict: dict, summary_dict: dict, category_name):
 def plot_correlation(correlation_dfs_dict: dict, category_type: str): 
     n = len(correlation_dfs_dict.items())
     
-    if (n == 2): 
+    if (n == 1): 
+        fig, axs = plt.subplots(1, 1, figsize=(8, 6))
+    elif (n == 2): 
         fig, axs = plt.subplots(1, 2, figsize=(16, 6))
+    elif (n == 3): 
+        fig, axs = plt.subplots(1, 3, figsize=(24, 6))
 
     fig.suptitle(f"Correlation of {category_type} category signals", fontsize=14)
-    axs = axs.ravel()
+    axs = np.atleast_1d(axs).ravel()
     i = 0 
     for key, df in correlation_dfs_dict.items(): 
         df.index = [x.split('_')[-1] for x in df.index]
