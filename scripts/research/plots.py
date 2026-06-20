@@ -158,5 +158,7 @@ def plot_correlation(correlation_dfs_dict: dict, category_type: str):
         axs[i].set_xlabel(f"{key} Window", fontsize=11)
         axs[i].set_ylabel(f"{key} Window", fontsize=11)
         i += 1
-    plt.tight_layout()
-    plt.show()
+    if ("Reversal 5" not in list(correlation_dfs_dict.keys())):
+        plt.tight_layout()
+        plt.show()
+    return fig, axs
