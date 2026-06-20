@@ -34,6 +34,8 @@ def plot_ic_timeseries(ic_df_dict: dict, category_name: str):
         axs[i].set_title(f"Line plot of {category}", fontsize=13)
         axs[i].set_xlabel(f"Date", fontsize=12)
         axs[i].set_ylabel("IC Score", fontsize=12)
+        
+        axs[i].tick_params(axis="x", labelrotation=45)
         i += 1
             
     plt.show()
@@ -72,9 +74,6 @@ def plot_ic_summary_bar(
         df = summary_df[category_signal_names].copy() 
         
         values = df.loc[metric].sort_values()
-        
-        print(category)
-        print(name_dict)
         
         axs[i].set_title(f"Bar plot of {name_dict[category]} signal with {metric_dict[metric]}", fontsize=12)
         axs[i].set_xlabel(f"{metric_dict[metric]}", fontsize=11)
