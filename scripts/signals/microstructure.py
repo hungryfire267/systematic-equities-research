@@ -36,7 +36,7 @@ class Microstructure:
         dollar_volume = self.get_dollar_volume()
         for window, min_periods in self.window_periods.items(): 
             liquidity = dollar_volume.rolling(window=window, min_periods=min_periods).mean()
-            dv_rank = cross_sectional_ranking(liquidity, higher_is_better=True)
+            dv_rank = cross_sectional_ranking(liquidity, higher_is_better=False)
             dv_liquidity_dict[window] = dv_rank.reset_index()
         return dv_liquidity_dict
 
@@ -47,7 +47,7 @@ class Microstructure:
         
         for window, min_periods in self.window_periods.items():
             amihud_smoothed = amihud.rolling(window=window, min_periods=min_periods).mean()
-            amihud_rank = cross_sectional_ranking(amihud_smoothed, higher_is_better=False)
+            amihud_rank = cross_sectional_ranking(amihud_smoothed, higher_is_better=True)
             amihud_dict[window] = amihud_rank.reset_index()
         
         return amihud_dict
