@@ -95,10 +95,10 @@ class BetaFeatures:
             market_beta_df, market_vol_df = self.get_market_rolling_beta_vol(window)
             industry_beta_df, industry_vol_df = self.get_industry_rolling_beta_vol(window)
             
-            market_beta_df_dict[window] = cross_sectional_ranking(market_beta_df, higher_is_better = False).reset_index()
-            industry_beta_df_dict[window] = cross_sectional_ranking(industry_beta_df, higher_is_better = False).reset_index()
-            market_vol_df_dict[window] = cross_sectional_ranking(market_vol_df, higher_is_better = False).reset_index()
-            industry_vol_df_dict[window] = cross_sectional_ranking(industry_vol_df, higher_is_better = False).reset_index()
+            market_beta_df_dict[window] = cross_sectional_ranking(market_beta_df, higher_is_better = True).reset_index()
+            industry_beta_df_dict[window] = cross_sectional_ranking(industry_beta_df, higher_is_better = True).reset_index()
+            market_vol_df_dict[window] = cross_sectional_ranking(market_vol_df, higher_is_better = True).reset_index()
+            industry_vol_df_dict[window] = cross_sectional_ranking(industry_vol_df, higher_is_better = True).reset_index()
 
         final_betafeatures_dict = {
             "market_beta": market_beta_df_dict,

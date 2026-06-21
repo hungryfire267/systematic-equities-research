@@ -144,6 +144,8 @@ def plot_correlation(correlation_dfs_dict: dict, category_type: str):
         fig, axs = plt.subplots(1, 2, figsize=(16, 6))
     elif (n == 3): 
         fig, axs = plt.subplots(1, 3, figsize=(24, 6))
+    elif (n == 4): 
+        fig, axs = plt.subplots(2, 2, figsize=(16, 12))
 
     fig.suptitle(f"Correlation of {category_type} category signals", fontsize=14)
     axs = np.atleast_1d(axs).ravel()
