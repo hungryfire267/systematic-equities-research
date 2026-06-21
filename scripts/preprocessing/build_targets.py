@@ -12,7 +12,7 @@ companies_paths_dict = {
 }
 
 class ForwardReturns: 
-    def __init__(self, horizon_list): 
+    def __init__(self, horizon_list=np.array([5, 10, 21])): 
         self.df = pd.read_parquet(companies_paths_dict["returns"])
         self.horizon_list = horizon_list
         
@@ -41,9 +41,6 @@ class ForwardReturns:
         returns_df = self.melt_df()
         final_df = self.calculate(returns_df)
         return final_df
-
-if __name__ == "__main__": 
-    df = ForwardReturns([5, 10, 21]).run_data()
     
     
         

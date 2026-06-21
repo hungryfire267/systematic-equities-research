@@ -6,7 +6,7 @@ import pandas as pd
 class FeatureMatrixBuilder:
     def __init__(self, feature_dfs_dict: dict[str, pd.DataFrame], target_df): 
         self.feature_dfs_dict = feature_dfs_dict 
-        self.target_df_dict = target_df
+        self.target_df = target_df
         
     def merge_features(self) -> pd.DataFrame: 
         df_list = []
@@ -41,7 +41,7 @@ class FeatureMatrixBuilder:
     def run_data(self): 
         feature_df = self.merge_features()
         final_df = self.add_target(feature_df)
-
+        
         return (
             final_df
             .sort_values(["Date", "Ticker"])

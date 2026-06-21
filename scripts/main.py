@@ -4,8 +4,9 @@ import os
 import pandas as pd
 from pathlib import Path
 
-from scripts.preprocessing.get_feature_signals import GetFeatureSignals
 from scripts.preprocessing.build_feature_matrix import FeatureMatrixBuilder
+from scripts.preprocessing.build_targets import ForwardReturns
+from scripts.preprocessing.get_feature_signals import GetFeatureSignals
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
@@ -38,10 +39,15 @@ if __name__ == "__main__":
     feature_dfs_dict = {}
     for feature, feature_list in predictive_factors_dict.items(): 
         df = pd.read_parquet(processed_paths_dict[feature])[["Date", "Ticker"] + predictive_factors_dict[feature]].copy()
-        df = df.set_index(["Date", "Ticker"])
         feature_dfs_dict[feature] = df
     
-    print(feature_dfs_dict)
+    target_dfs = ForwardReturns().run_data()[["Date", "Ticker", "future_return_5d"]]
+    
+    print(target_dfs)
+    
+    feature_matrix_df = FeatureMatrixBuilder(feature_dfs_dict, target_dfs).run_data()
+    
+    print(feature_matrix_df)
     
     
     
