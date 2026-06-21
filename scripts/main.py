@@ -33,6 +33,10 @@ predictive_factors_dict = {
     "reversal": ["reversal_5", "rsr_21"]
 }
 
+feature_matrix_pipeline_dict = {
+    "feature_matrix_first": os.path.join(PROCESSED_DIR, "feature_matrix_first.parquet")
+}
+
 if __name__ == "__main__": 
     GetFeatureSignals(processed_paths_dict).run_data()
     
@@ -43,9 +47,8 @@ if __name__ == "__main__":
     
     target_dfs = ForwardReturns().run_data()[["Date", "Ticker", "future_return_5d"]]
     
-    print(target_dfs)
-    
     feature_matrix_df = FeatureMatrixBuilder(feature_dfs_dict, target_dfs).run_data()
+    feature_matrix_df.to_parquet(feature_matrix_pipeline_dict["feature_matrix_first"], index=False, engine="pyarrow")
     
     print(feature_matrix_df)
     
