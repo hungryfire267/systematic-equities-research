@@ -154,7 +154,7 @@ def plot_correlation(correlation_dfs_dict: dict, category_type: str):
         df.index = [x.split('_')[-1] for x in df.index]
         df.columns = [x.split('_')[-1] for x in df.columns]
         sns.heatmap(
-            df, ax=axs[i], cmap="crest", annot=True, linewidths=1
+            df, ax=axs[i], cmap="crest", annot=True, linewidhts=1
         )
         axs[i].set_title(f"{key} Correlation signal", fontsize=12)
         axs[i].set_xlabel(f"{key} Window", fontsize=11)
