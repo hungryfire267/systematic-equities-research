@@ -8,6 +8,8 @@ from scripts.preprocessing.build_feature_matrix import FeatureMatrixBuilder
 from scripts.preprocessing.build_targets import ForwardReturns
 from scripts.preprocessing.get_feature_signals import GetFeatureSignals
 
+from scripts.models.walk_forward import WalkForwardValidator
+
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
@@ -38,7 +40,7 @@ feature_matrix_pipeline_dict = {
 }
 
 if __name__ == "__main__": 
-    GetFeatureSignals(processed_paths_dict).run_data()
+    """GetFeatureSignals(processed_paths_dict).run_data()
     
     feature_dfs_dict = {}
     for feature, feature_list in predictive_factors_dict.items(): 
@@ -48,9 +50,10 @@ if __name__ == "__main__":
     target_dfs = ForwardReturns().run_data()[["Date", "Ticker", "future_return_5d"]]
     
     feature_matrix_df = FeatureMatrixBuilder(feature_dfs_dict, target_dfs).run_data()
-    feature_matrix_df.to_parquet(feature_matrix_pipeline_dict["feature_matrix_first"], index=False, engine="pyarrow")
+    feature_matrix_df.to_parquet(feature_matrix_pipeline_dict["feature_matrix_first"], index=False, engine="pyarrow")"""
     
-    print(feature_matrix_df)
+    feature_matrix_df = pd.read_parquet(feature_matrix_pipeline_dict["feature_matrix_first"])
+    WalkForwardValidator(feature_matrix_df, 2).run_data()
     
     
     
