@@ -28,7 +28,7 @@ class WalkForwardValidator:
         adjusted_start_date = start_date + datetime.timedelta(days=365)
         
         print(adjusted_start_date)
-        self.feature_matrix = self.feature_matrix[self.feature_matrix["Date"] == adjusted_start_date]
+        self.feature_matrix = self.feature_matrix[self.feature_matrix["Date"] >= adjusted_start_date]
         dates = self.get_rebalance_dates()
         
         predictions = [] 
@@ -49,8 +49,8 @@ class WalkForwardValidator:
             
             self.model.fit(X_train, y_train)
             
-            output = test_df[["Date", "Ticker", self.target_col]]
-            output["prediction"] = self.predict(X_test)
+            output = test_df[["Date", "Ticker", self.target_col]].copy()
+            output["prediction"] = self.model.predict(X_test)
             output["model_name"] = self.model.__class__.__name__
             
             predictions.append(output)
