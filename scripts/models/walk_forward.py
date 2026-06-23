@@ -5,8 +5,12 @@ import pandas as pd
 
 
 class WalkForwardValidator: 
-    def __init__(self, feature_matrix, rebalance_date: int, min_train_size = 30000): 
+    def __init__(self, feature_matrix, model, rebalance_date: int, min_train_size = 30000): 
         self.feature_matrix = feature_matrix
+        self.feature_cols = self.feature_matrix.columns[2:-1]
+        self.target_col = self.feature_matrix.columns[-1]
+        
+        self.model = model
         
         if (rebalance_date not in range(1, 6)): 
             raise ValueError("Rebalance date must be a weekday: Monday=0, ..., Friday=4")
@@ -37,6 +41,22 @@ class WalkForwardValidator:
             
             if train_df.shape[0] < self.min_train_size or test_df.empty: 
                 continue
+            
+            X_train = train_df[self.feature_cols].copy() 
+            y_train = train_df[self.target_col].copy() 
+            
+            X_test = test_df[self.feature_cols].copy() 
+            
+            self.model.fit(X_train, y_train)
+            
+            output = test_df[["Date", "Ticker", self.target_col]]
+            output["prediction"] = self.predict(X_test)
+            output["model_name"] = self.model.__class__.__name__
+            
+            predictions.append(output)
+        
+        final_df = pd.concat(predictions, ignore_index=True)
+        return final_df
             
             
 
