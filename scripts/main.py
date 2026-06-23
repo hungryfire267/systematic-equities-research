@@ -52,8 +52,5 @@ if __name__ == "__main__":
     feature_matrix_df = FeatureMatrixBuilder(feature_dfs_dict, target_dfs).run_data()
     feature_matrix_df.to_parquet(feature_matrix_pipeline_dict["feature_matrix_first"], index=False, engine="pyarrow")
     
-    feature_matrix_df = pd.read_parquet(feature_matrix_pipeline_dict["feature_matrix_first"])
-    WalkForwardValidator(feature_matrix_df, 2).run_data()
-    
     
     
