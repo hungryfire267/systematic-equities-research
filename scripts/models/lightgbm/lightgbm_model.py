@@ -9,7 +9,7 @@ class LightGBMRegressionModel:
         default_params = {
             "num_leaves": 64, 
             "n_estimators": 200,
-            "learning_rate": 0.2, 
+            "learning_rate": 0.1, 
             "max_depth": 5,
             "random_state": 42,
             "n_jobs": -1

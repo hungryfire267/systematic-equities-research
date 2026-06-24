@@ -5,7 +5,9 @@ import pandas as pd
 
 
 class WalkForwardValidator: 
-    def __init__(self, feature_matrix, model, rebalance_date: int, min_train_size = 30000): 
+    def __init__(
+        self, feature_matrix, model, validation_start: str, validation_end: str, rebalance_date: int, min_train_size = 30000
+    ): 
         self.feature_matrix = feature_matrix
         self.feature_cols = self.feature_matrix.columns[2:-1]
         self.target_col = self.feature_matrix.columns[-1]
@@ -13,9 +15,12 @@ class WalkForwardValidator:
         self.model = model
         
         if (rebalance_date not in range(1, 6)): 
-            raise ValueError("Rebalance date must be a weekday: Monday=0, ..., Friday=4")
+            raise ValueError("Rebalance date must be a weekday")
         self.rebalance_date = rebalance_date
         self.min_train_size = min_train_size
+        
+        self.validation_start = pd.to_datetime(validation_start)
+        self.validation_end = pd.to_datetime(validation_end)
     
     def get_rebalance_dates(self): 
         mask = self.feature_matrix["Date"].dt.weekday == self.rebalance_date
@@ -31,9 +36,21 @@ class WalkForwardValidator:
         self.feature_matrix = self.feature_matrix[self.feature_matrix["Date"] >= adjusted_start_date]
         dates = self.get_rebalance_dates()
         
+        unique_dates = np.sort(self.feature_matrix["Date"].unique())
+        
         predictions = [] 
-        for date in dates: 
-            train_df = self.feature_matrix[self.feature_matrix["Date"] < date].copy()
+        for date in dates:
+            horizon = 5  # or infer from target_col
+
+            date_idx = np.where(unique_dates == date)[0][0]
+
+            purge_cutoff_idx = max(0, date_idx - horizon)
+            purge_cutoff_date = unique_dates[purge_cutoff_idx]
+
+            train_df = self.feature_matrix[
+                self.feature_matrix["Date"] <= purge_cutoff_date
+            ].copy()
+            
             test_df = self.feature_matrix[self.feature_matrix["Date"] == date].copy()
             
             train_df = train_df.dropna(subset=[self.target_col])
