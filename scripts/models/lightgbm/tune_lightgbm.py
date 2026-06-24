@@ -21,13 +21,16 @@ class LightGBMTuner:
         self.n_iter = n_iter
         self.feature_matrix_df = feature_matrix_df
         
+        self.feature_cols = self.feature_matrix_df.columns[2:-1]
+        self.target_col = self.feature_matrix_df.columns[-1]
+        
     def get_param_grids(self): 
         param_grids = { 
-            "learning_rate": self.rng.choice([0.01, 0.02, 0.04, 0.08, 0.12]), 
-            "num_leaves": self.rng.choice([15, 31, 63, 127]),
-            "max_depth": self.rng.choice([3, 5, 7, 9, 11]),
-            "n_estimators": self.rng.choice([50, 100, 150, 200, 250, 500]),
-            "min_child_samples": self.rng.choice([50, 100, 150, 200])
+            "learning_rate": self.rng.choice([0.01, 0.02, 0.04, 0.08, 0.1]), 
+            "num_leaves": self.rng.choice([31, 63, 127]),
+            "max_depth": self.rng.choice([5, 7, 9, -1]),
+            "n_estimators": self.rng.choice([100, 200, 300, 500]),
+            "min_child_samples": self.rng.choice([10, 20, 50, 100])
         }
         
         return param_grids
@@ -58,7 +61,7 @@ class LightGBMTuner:
                 min_train_size=30000
             )
             
-            prediction_outputs = wf.run_data(model)
+            prediction_outputs = wf.run_data()
             score = self.mean_ic(prediction_outputs)
             
             row = {
@@ -75,11 +78,11 @@ class LightGBMTuner:
         best_params = results_df.iloc[0].drop("mean_ic").to_dict()
         
         results_df.to_csv(
-            RESULTS_DIR / "random_search.csv",
+            LIGHTGBM_DIR / "random_search.csv",
             index=False,
         )
         
-        with open(os.path.join(RESULTS_DIR, "best_params.json"), "w") as f: 
+        with open(os.path.join(LIGHTGBM_DIR, "best_params.json"), "w") as f: 
             json.dump(best_params, f, indent=4)
         
         

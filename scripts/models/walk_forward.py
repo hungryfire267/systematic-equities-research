@@ -23,9 +23,14 @@ class WalkForwardValidator:
         self.validation_end = pd.to_datetime(validation_end)
     
     def get_rebalance_dates(self): 
-        mask = self.feature_matrix["Date"].dt.weekday == self.rebalance_date
+        mask = (
+            (self.feature_matrix["Date"].dt.weekday == self.rebalance_date) &
+            (self.feature_matrix["Date"] >= self.validation_start) &
+            (self.feature_matrix["Date"] <= self.validation_end)
+        )
+
         dates = self.feature_matrix.loc[mask, "Date"].unique()
-        return dates
+        return np.sort(dates)
         
     def run_data(self): 
         

@@ -12,7 +12,8 @@ class LightGBMRegressionModel:
             "learning_rate": 0.1, 
             "max_depth": 5,
             "random_state": 42,
-            "n_jobs": -1
+            "n_jobs": -1,
+            "verbose": -1
         }
         
         if params is not None:
