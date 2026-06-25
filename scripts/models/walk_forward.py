@@ -37,7 +37,6 @@ class WalkForwardValidator:
         start_date = self.feature_matrix["Date"].min()
         adjusted_start_date = start_date + datetime.timedelta(days=365)
         
-        print(adjusted_start_date)
         self.feature_matrix = self.feature_matrix[self.feature_matrix["Date"] >= adjusted_start_date]
         dates = self.get_rebalance_dates()
         

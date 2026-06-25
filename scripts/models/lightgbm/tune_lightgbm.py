@@ -57,8 +57,8 @@ class LightGBMTuner:
                 model, 
                 validation_start = "2024-01-01",
                 validation_end="2025-12-31",
-                rebalance_date=2,
-                min_train_size=30000
+                rebalance_date=1,
+                min_train_size=25000
             )
             
             prediction_outputs = wf.run_data()
