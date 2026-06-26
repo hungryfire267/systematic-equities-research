@@ -77,7 +77,7 @@ class WalkForwardValidator:
             predictions.append(output)
         
         final_df = pd.concat(predictions, ignore_index=True)
-        return final_df
+        return X_test, final_df
             
             
 
