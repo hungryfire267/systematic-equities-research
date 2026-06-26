@@ -9,8 +9,8 @@ class WalkForwardValidator:
         self, feature_matrix, model, validation_start: str, validation_end: str, rebalance_date: int, min_train_size = 30000
     ): 
         self.feature_matrix = feature_matrix
-        self.feature_cols = self.feature_matrix.columns[2:-1]
-        self.target_col = self.feature_matrix.columns[-1]
+        self.target_col = "future_return_5d"
+        self.feature_cols = self.feature_matrix.columns[2:].drop("future_return_5d")
         
         self.model = model
         

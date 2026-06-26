@@ -31,10 +31,10 @@ class MarketSignals:
     def get_market_momentum(self): 
         market_momentum_df = self.asx_index_df.copy() 
         market_momentum_df["momentum_63_21"] = (
-            self.market_momentum_df["^AXJO"].shift(21) / self.market_momentum_df["^AXJO"].shift(63) - 1
+            market_momentum_df["^AXJO"].shift(21) / market_momentum_df["^AXJO"].shift(63) - 1
         )
         market_momentum_df["momentum_252_21"] = (
-            self.market_momentum_df["^AXJO"].shift(21) / self.market_momentum_df["^AXJO"].shift(252) - 1
+            market_momentum_df["^AXJO"].shift(21) / market_momentum_df["^AXJO"].shift(252) - 1
         )
         market_momentum_df = market_momentum_df.drop(columns = ["^AXJO"])
         
@@ -149,13 +149,13 @@ class MarketSignals:
         
     def run_data(self): 
         market_return_df = self.get_market_return()
-        market_mommentum_df = self.get_market_momentum()
+        market_momentum_df = self.get_market_momentum()
         market_volatility_df = self.get_market_volatility(market_return_df)
         market_drawdown_df = self.get_market_drawdown([21, 63, 252])
         
         market_data_dict = {
             "returns": market_return_df, 
-            "momentum": market_mommentum_df,
+            "momentum": market_momentum_df,
             "volatility": market_volatility_df, 
             "drawdown": market_drawdown_df
         }

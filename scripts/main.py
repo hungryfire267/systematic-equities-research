@@ -1,4 +1,4 @@
-
+from functools import reduce
 import numpy as np
 import os
 import pandas as pd
@@ -8,7 +8,7 @@ from scripts.preprocessing.build_feature_matrix import FeatureMatrixBuilder
 from scripts.preprocessing.build_targets import ForwardReturns
 from scripts.preprocessing.get_feature_signals import GetFeatureSignals
 
-from scripts.models.walk_forward import WalkForwardValidator
+from scripts.signals.market import MarketSignals
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
@@ -46,10 +46,26 @@ if __name__ == "__main__":
     for feature, feature_list in predictive_factors_dict.items(): 
         df = pd.read_parquet(processed_paths_dict[feature])[["Date", "Ticker"] + predictive_factors_dict[feature]].copy()
         feature_dfs_dict[feature] = df
+        
+    market_data_dict = MarketSignals().run_data() 
+    market_df = reduce(
+        lambda left, right: pd.merge(left, right, on="Date", how="outer"),
+        market_data_dict.values()
+    )
     
     target_dfs = ForwardReturns().run_data()[["Date", "Ticker", "future_return_5d"]]
     
     feature_matrix_df = FeatureMatrixBuilder(feature_dfs_dict, target_dfs).run_data()
+    
+    feature_matrix_df = feature_matrix_df.merge(
+        market_df,
+        on="Date",
+        how="left",
+        validate="many_to_one"
+    )
+
+    feature_matrix_df = feature_matrix_df.sort_values(["Date", "Ticker"]).reset_index(drop=True)
+    print(feature_matrix_df)
     feature_matrix_df.to_parquet(feature_matrix_pipeline_dict["feature_matrix_first"], index=False, engine="pyarrow")
     
     

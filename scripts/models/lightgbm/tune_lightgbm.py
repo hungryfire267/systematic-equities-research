@@ -21,8 +21,8 @@ class LightGBMTuner:
         self.n_iter = n_iter
         self.feature_matrix_df = feature_matrix_df
         
-        self.feature_cols = self.feature_matrix_df.columns[2:-1]
-        self.target_col = self.feature_matrix_df.columns[-1]
+        self.target_col = "future_return_5d"
+        self.feature_cols = self.feature_matrix_df.columns[2:].drop("future_return_5d")
         
     def get_param_grids(self): 
         param_grids = { 
@@ -55,8 +55,8 @@ class LightGBMTuner:
             wf = WalkForwardValidator(
                 self.feature_matrix_df, 
                 model, 
-                validation_start = "2024-01-01",
-                validation_end="2025-12-31",
+                validation_start = "2023-07-01",
+                validation_end="2025-06-30",
                 rebalance_date=1,
                 min_train_size=25000
             )
