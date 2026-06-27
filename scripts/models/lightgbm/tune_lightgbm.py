@@ -61,7 +61,8 @@ class LightGBMTuner:
                 min_train_size=25000
             )
             
-            prediction_outputs = wf.run_data()
+            X_test, prediction_outputs = wf.run_data()
+            
             score = self.mean_ic(prediction_outputs)
             
             row = {

@@ -24,17 +24,20 @@ PROCESSED_COMPANIES_DIR.mkdir(parents=True, exist_ok=True)
 PROCESSED_MARKETS_DIR = PROCESSED_DIR / "markets"
 PROCESSED_MARKETS_DIR.mkdir(parents=True, exist_ok=True)
 
+PROCESSED_FEATURE_DIR = PROCESSED_DIR / "features"
+PROCESSED_FEATURE_DIR.mkdir(parents=True, exist_ok=True)
+
 # ALPHA COMPANY SIGNALS
 
 processed_paths_dict = {
-    "beta": os.path.join(PROCESSED_DIR, "beta.parquet"),
-    "mean_volatility": os.path.join(PROCESSED_DIR, "mean_volatility.parquet"),
-    "microstructure": os.path.join(PROCESSED_DIR, "microstructure.parquet"),
-    "momentum": os.path.join(PROCESSED_DIR, "momentum.parquet"), 
-    "momentum_liquidity": os.path.join(PROCESSED_DIR, "momentum_liquidity.parquet"),
-    "pvo": os.path.join(PROCESSED_DIR, "pvo.parquet"),
-    "reversal": os.path.join(PROCESSED_DIR, "reversal.parquet"),
-    "reversal_illiquidity": os.path.join(PROCESSED_DIR, "reversal_illiquidity.parquet")
+    "beta": os.path.join(PROCESSED_COMPANIES_DIR, "beta.parquet"),
+    "mean_volatility": os.path.join(PROCESSED_COMPANIES_DIR, "mean_volatility.parquet"),
+    "microstructure": os.path.join(PROCESSED_COMPANIES_DIR, "microstructure.parquet"),
+    "momentum": os.path.join(PROCESSED_COMPANIES_DIR, "momentum.parquet"), 
+    "momentum_liquidity": os.path.join(PROCESSED_COMPANIES_DIR, "momentum_liquidity.parquet"),
+    "pvo": os.path.join(PROCESSED_COMPANIES_DIR, "pvo.parquet"),
+    "reversal": os.path.join(PROCESSED_COMPANIES_DIR, "reversal.parquet"),
+    "reversal_illiquidity": os.path.join(PROCESSED_COMPANIES_DIR, "reversal_illiquidity.parquet")
 }
 
 predictive_factors_dict = {
@@ -63,10 +66,12 @@ macro_paths_dict = {
 }
 
 
-
+# PIPELINE DICT
 
 feature_matrix_pipeline_dict = {
-    "feature_matrix_first": os.path.join(PROCESSED_DIR, "feature_matrix_first.parquet")
+    "feature_matrix_stock": os.path.join(PROCESSED_FEATURE_DIR, "feature_matrix_stock.parquet"), 
+    "feature_matrix_market": os.path.join(PROCESSED_FEATURE_DIR, "feature_matrix_market.parquet"), 
+    "feature_matrix_macro_market": os.path.join(PROCESSED_FEATURE_DIR, "feature_matrix_macro_market.parquet")
 }
 
 if __name__ == "__main__": 
@@ -89,20 +94,42 @@ if __name__ == "__main__":
     
     feature_matrix_df = FeatureMatrixBuilder(feature_dfs_dict, target_dfs).run_data()
     
-    feature_matrix_df = feature_matrix_df.merge(
+    # 1. Stock Features Only
+    feature_matrix_stock = feature_matrix_df.copy() 
+    
+    # 2. Stock + Market
+    feature_matrix_market = feature_matrix_df.merge(
         market_df,
         on="Date",
         how="left",
         validate="many_to_one"
     )
-
-    feature_matrix_df = feature_matrix_df.sort_values(["Date", "Ticker"]).reset_index(drop=True)
-    print(feature_matrix_df)
-    feature_matrix_df.to_parquet(feature_matrix_pipeline_dict["feature_matrix_first"], index=False, engine="pyarrow")
     
+    # 3. Stock + Market + Macro
+    feature_matrix_macro_market = (
+        feature_matrix_market
+        .merge(
+            macro_df,
+            on="Date",
+            how="left",
+            validate="many_to_one"
+        )
+    )
+    
+    feature_matrix_stock = feature_matrix_stock.sort_values(["Date", "Ticker"]).reset_index(drop=True)
+    feature_matrix_market = feature_matrix_market.sort_values(["Date", "Ticker"]).reset_index(drop=True)
+    feature_matrix_macro_market = feature_matrix_macro_market.sort_values(["Date", "Ticker"]).reset_index(drop=True)
     
     feature_matrix_stock.to_parquet(
-        feature_matrix_pipe
+        feature_matrix_pipeline_dict["feature_matrix_stock"], index=False, engine="pyarrow"
+    )
+    
+    feature_matrix_market.to_parquet(
+        feature_matrix_pipeline_dict["feature_matrix_market"], index=False, engine="pyarrow"
+    )
+    
+    feature_matrix_macro_market.to_parquet(
+        feature_matrix_pipeline_dict["feature_matrix_macro_market"], index=False, engine="pyarrow"
     )
     
     
