@@ -12,6 +12,7 @@ from scripts.signals.momentum_liquidity import MomentumLiquidity
 from scripts.signals.pvo import PVO
 from scripts.signals.reversal import Reversal
 from scripts.signals.reversal_illiquidity import ReversalIlliquidity
+from scripts.signals.trend import Trends
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
@@ -25,6 +26,7 @@ class GetFeatureSignals:
         beta_features=np.array([10, 21, 63, 126]), 
         mv_features=np.array([5, 10, 21, 63]),
         microstructure_features=np.array([21, 63, 126]),
+        trend_features=np.array([21, 63, 126]),
         reversal_features=np.array([5, 10, 21])
     ):
         self.processed_paths_dict = processed_paths_dict
@@ -85,6 +87,13 @@ class GetFeatureSignals:
                     "reversal_window_list": reversal_features,
                     "illiquidity_window_list": microstructure_features
                 }
+            }, 
+            {
+                "name": "trend", 
+                "class": Trends, 
+                "params": {
+                    "rolling_window_list":trend_features
+                }
             }
         ]
         
@@ -131,6 +140,5 @@ class GetFeatureSignals:
                 ), summary_feature_dict.values()
             )
             final_features[name] = merged_features
-            print(merged_features)
             merged_features.to_parquet(self.processed_paths_dict[name], index=False, engine="pyarrow")
             

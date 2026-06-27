@@ -86,5 +86,5 @@ class Reversal:
             "reversal": reversal_df_dict, 
             "rsr": rsr_df_dict
         }
-    
+        
         return final_reversal_dict

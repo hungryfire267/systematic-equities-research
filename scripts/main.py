@@ -37,7 +37,8 @@ processed_paths_dict = {
     "momentum_liquidity": os.path.join(PROCESSED_COMPANIES_DIR, "momentum_liquidity.parquet"),
     "pvo": os.path.join(PROCESSED_COMPANIES_DIR, "pvo.parquet"),
     "reversal": os.path.join(PROCESSED_COMPANIES_DIR, "reversal.parquet"),
-    "reversal_illiquidity": os.path.join(PROCESSED_COMPANIES_DIR, "reversal_illiquidity.parquet")
+    "reversal_illiquidity": os.path.join(PROCESSED_COMPANIES_DIR, "reversal_illiquidity.parquet"), 
+    "trend": os.path.join(PROCESSED_COMPANIES_DIR, "trend.parquet")
 }
 
 predictive_factors_dict = {
@@ -46,7 +47,8 @@ predictive_factors_dict = {
     "microstructure": ["amihud_21"],
     "momentum": ["momentum_252_21"],
     "momentum_liquidity": ["momentum_liquidity_21"], 
-    "reversal": ["reversal_5", "rsr_21"]
+    "reversal": ["reversal_5", "rsr_21"], 
+    "trend": ["trend_21", "trend_63", "trend_126", "r2_21", "r2_63", "r2_126"]
 }
 
 # MARKET SIGNALS 

@@ -15,7 +15,6 @@ class BuildMacroMarketMatrix:
     
     def run_data(self) -> pd.DataFrame: 
         features_dict = self.load_data()
-        print(features_dict)
         final_df = reduce(
             lambda left, right: pd.merge(left, right, on="Date", how="outer"),
             features_dict.values()
