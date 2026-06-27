@@ -15,10 +15,11 @@ asx_paths_dict = {
 }
 
 class MarketSignals: 
-    def __init__(self): 
-        
+    def __init__(self, paths_dict): 
         self.asx_index_df = pd.read_parquet(asx_paths_dict["asx_index"])
         self.asx_index_df["Date"] = pd.to_datetime(self.asx_index_df["Date"])
+        
+        self.paths_dict = paths_dict
     
     def get_market_return(self): 
         market_return = self.asx_index_df.copy()
@@ -159,7 +160,8 @@ class MarketSignals:
             "volatility": market_volatility_df, 
             "drawdown": market_drawdown_df
         }
-        return market_data_dict
         
-if __name__ == "__main__":
-    MarketSignals().run_data()
+        for feature, df in market_data_dict.items():
+            df.to_parquet(self.paths_dict[feature], index=False, engine="pyarrow")
+            
+        return market_data_dict
