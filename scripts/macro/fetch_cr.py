@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-class CurrencyRate: 
+class CurrencyRates: 
     def __init__(self, start_date, end_date):
         self.start_date = start_date
         self.end_date = end_date
@@ -51,3 +51,10 @@ class CurrencyRate:
         end_condition = df["Date"] <= self.end_date
         df = df[start_condition & end_condition].reset_index(drop=True)
         return df
+    
+    def run_data(self):
+        currency_df_dict_mapping = self.get_raw_data() 
+        cr_data = self.clean_data(currency_df_dict_mapping)
+        cr_data = cr_data[["Date",  "A$1=CNY", "A$1=EUR", "A$1=GBP", "A$1=HKD", "A$1=JPY", "A$1=NZD", "A$1=USD"]]
+        
+        return cr_data

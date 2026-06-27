@@ -1,7 +1,3 @@
-import datetime as dt
-import numpy as np
-import pandas as pd 
-from pathlib import Path
 import yfinance as yf 
 
 class VIX: 
@@ -11,7 +7,7 @@ class VIX:
         
     def fetch_vix(self): 
         vix_data = yf.download(
-            tickers="^AXVI", auto_adjust=True, start=self.start_date, end=self.end_date
+            tickers="^AXVI", auto_adjust=True, start=self.start_date, end=self.end_date, progress=False
         )
         
         final_df = vix_data["Close"].reset_index()

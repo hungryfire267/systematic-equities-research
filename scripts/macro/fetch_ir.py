@@ -29,7 +29,7 @@ class InterestRates:
         ]
         
         ir_data = ir_data[relevant_cols]
-        df = df.reset_index()
+        ir_data = ir_data.reset_index()
         ir_data["Date"] = pd.to_datetime(ir_data["Date"]).dt.date
         
         start_condition = ir_data["Date"] >= self.start_date
@@ -39,5 +39,5 @@ class InterestRates:
     
     def run_data(self): 
         ir_data = self.fetch_interest_rate_data()
-        ir_data = self.clean_data()
+        ir_data = self.clean_data(ir_data)
         return ir_data
