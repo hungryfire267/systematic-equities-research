@@ -4,9 +4,6 @@ import pandas as pd
 from pathlib import Path
 import yfinance as yf 
 
-
-
-
 class VIX: 
     def __init__(self, start_date, end_date): 
         self.start_date = start_date
@@ -24,14 +21,4 @@ class VIX:
     
     def run_data(self): 
         final_df = self.fetch_vix()
-        final_df.to_parquet()
-        
-        
-        
-                
-if __name__ == "__main__":
-    end_date = pd.to_datetime("2026-06-13")
-    start_date = end_date - dt.timedelta(days=1461)
-    
-     
-    VIX(start_date=start_date, end_date=end_date).fetch_vix()
+        return final_df
