@@ -30,6 +30,7 @@ PROCESSED_FEATURE_DIR.mkdir(parents=True, exist_ok=True)
 # ALPHA COMPANY SIGNALS
 
 processed_paths_dict = {
+    "autocorr": os.path.join(PROCESSED_COMPANIES_DIR, "autocorr.parquet"),
     "beta": os.path.join(PROCESSED_COMPANIES_DIR, "beta.parquet"),
     "mean_volatility": os.path.join(PROCESSED_COMPANIES_DIR, "mean_volatility.parquet"),
     "microstructure": os.path.join(PROCESSED_COMPANIES_DIR, "microstructure.parquet"),
@@ -42,6 +43,7 @@ processed_paths_dict = {
 }
 
 predictive_factors_dict = {
+    "autocorr": ["autocorr_21", "autocorr_63"],
     "beta": ["market_beta_63", "industry_beta_63", "market_resid_vol_126", "industry_resid_vol_126"],
     "mean_volatility": ["mean_volatility_10", "mean_volatility_21", "mean_volatility_63"],
     "microstructure": ["amihud_21"],

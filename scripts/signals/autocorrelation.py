@@ -32,7 +32,7 @@ class Autocorrelation:
                 lambda x: self.calculate_autocorrelation(x, lag=1),
                 raw=False
             )
-            autocorr_rank_df = cross_sectional_ranking(autocorr_df)
+            autocorr_rank_df = cross_sectional_ranking(autocorr_df, higher_is_better=False).reset_index()
             autocorrelation_dict[window] = autocorr_rank_df
             
         autocorr_final_dict = {

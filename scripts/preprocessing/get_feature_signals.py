@@ -4,6 +4,7 @@ import os
 import pandas as pd
 from pathlib import Path
 
+from scripts.signals.autocorrelation import Autocorrelation
 from scripts.signals.beta import BetaFeatures
 from scripts.signals.mean_volatility import MeanVolatility
 from scripts.signals.microstructure import Microstructure
@@ -23,6 +24,7 @@ class GetFeatureSignals:
     def __init__(
         self, 
         processed_paths_dict: dict,
+        autocorr_features=np.array([21, 63]),
         beta_features=np.array([10, 21, 63, 126]), 
         mv_features=np.array([5, 10, 21, 63]),
         microstructure_features=np.array([21, 63, 126]),
@@ -30,71 +32,99 @@ class GetFeatureSignals:
         reversal_features=np.array([5, 10, 21])
     ):
         self.processed_paths_dict = processed_paths_dict
-        self.signal_configs = [ 
-            {
-                "name": "beta",
-                "class": BetaFeatures, 
-                "params": {
-                    "window_list": beta_features
-                }
-            },
-            {
-                "name": "mean_volatility", 
-                "class": MeanVolatility, 
-                "params": {
-                    "windows_list": mv_features, 
-                    "set_window": 21
-                }
-            }, 
-            {
-                "name": "microstructure",
-                "class": Microstructure, 
-                "params": {
-                    "window_list": microstructure_features
-                }
-            },
-            {
-                "name": "momentum",
-                "class": Momentum,
-                "params": {}
-            }, 
-            {
-                "name": "momentum_liquidity",
-                "class": MomentumLiquidity, 
-                "params": {
-                    "liquidity_window_list":  microstructure_features
-                }
-            },
-            {
-                "name": "pvo",
-                "class": PVO, 
-                "params": {
-                    "span_list": np.array([(26, 12)]),
-                    "extreme_list": np.array([(0.01, 0.99)])
-                }
-            }, 
-            {
-                "name": "reversal",
-                "class": Reversal, 
-                "params": {
-                    "windows_list": reversal_features
-                }
-            },
-            {
-                "name": "reversal_illiquidity",
-                "class": ReversalIlliquidity, 
-                "params": {
-                    "reversal_window_list": reversal_features,
-                    "illiquidity_window_list": microstructure_features
-                }
-            }, 
-            {
-                "name": "trend", 
-                "class": Trends, 
-                "params": {
-                    "rolling_window_list":trend_features
-                }
+        
+        autocorrelation_dict = {
+            "name": "autocorr", 
+            "class": Autocorrelation, 
+            "params": {
+                "rolling_window_list": autocorr_features
             }
+        }
+        
+        beta_dict = {
+            "name": "beta",
+            "class": BetaFeatures, 
+            "params": {
+                "window_list": beta_features
+            }
+        }
+        
+        mean_volatility_dict = {
+            "name": "mean_volatility", 
+            "class": MeanVolatility, 
+            "params": {
+                "windows_list": mv_features, 
+                "set_window": 21
+            }
+        }
+        
+        microstructure_dict = {
+            "name": "microstructure",
+            "class": Microstructure, 
+            "params": {
+                "window_list": microstructure_features
+            }
+        }
+        
+        momentum_dict = {
+            "name": "momentum",
+            "class": Momentum,
+            "params": {}
+        }
+        
+        momentum_liquidity_dict = {
+            "name": "momentum_liquidity",
+            "class": MomentumLiquidity, 
+            "params": {
+                "liquidity_window_list":  microstructure_features
+            }
+        }
+        
+        pvo_dict = {
+            "name": "pvo",
+            "class": PVO, 
+            "params": {
+                "span_list": np.array([(26, 12)]),
+                "extreme_list": np.array([(0.01, 0.99)])
+            }
+        }
+        
+        reversal_dict = {
+            "name": "reversal",
+            "class": Reversal, 
+            "params": {
+                "windows_list": reversal_features
+            }
+        }
+        
+        reversal_illiquidity_dict = {
+            "name": "reversal_illiquidity",
+            "class": ReversalIlliquidity, 
+            "params": {
+                "reversal_window_list": reversal_features,
+                "illiquidity_window_list": microstructure_features
+            }
+        }
+        
+        trend_dict = {
+            "name": "trend", 
+            "class": Trends, 
+            "params": {
+                "rolling_window_list":trend_features
+            }
+        }
+        
+        self.signal_configs = [
+            autocorrelation_dict,
+            beta_dict, 
+            mean_volatility_dict, 
+            microstructure_dict, 
+            momentum_dict, 
+            momentum_liquidity_dict,
+            pvo_dict, 
+            reversal_dict,
+            reversal_illiquidity_dict,
+            trend_dict
         ]
         
     def reshape_feature_dict(self, df_dict, feature_name): 
