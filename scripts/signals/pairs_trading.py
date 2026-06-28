@@ -6,7 +6,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
-UNIVERSE_PATH = 
+UNIVERSE_PATH = BASE_DIR / "data" / "asx_companies.csv"
 COMPANIES_DIR = BASE_DIR / "data" / "raw" / "companies"
 
 
@@ -14,7 +14,6 @@ companies_paths_dict = {
     "prices": os.path.join(COMPANIES_DIR, "prices.parquet"),
     "returns": os.path.join(COMPANIES_DIR, "returns.parquet")
 }
-
 
 class PairsTrading: 
     def __init__(self, window): 
