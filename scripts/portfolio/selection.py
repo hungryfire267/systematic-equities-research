@@ -17,6 +17,16 @@ class TopBottom20Selector:
         with open(os.path.join(LIGHTGBM_MODEL_DIR, "best_params.json"), "r") as f:
             self.best_params = json.load(f)
         
+        int_params = [
+            "num_leaves",
+            "max_depth",
+            "n_estimators",
+            "min_child_samples",
+        ]
+
+        for p in int_params:
+            self.best_params[p] = int(self.best_params[p])
+        
         self.feature_matrix = pd.read_parquet(os.path.join(PROCESSED_FEATURE_DIR, "feature_matrix_stock.parquet"))
         self.model = model_class(params = self.best_params)
         
@@ -31,6 +41,67 @@ class TopBottom20Selector:
         )
 
         X_test, test_preds = wf.run_data()
-        print(X_test)
-        return X_test
+        print(test_preds)
+        return test_preds
+    
+    def clean_preds(self, test_preds): 
+        test_preds = test_preds[["Date", "Ticker", "prediction"]].copy()
+
+        test_preds_wide = test_preds.pivot(
+            index="Date", 
+            columns="Ticker", 
+            values="prediction"
+        )
+
+        # Higher prediction = better rank
+        test_preds_rank = test_preds_wide.rank(
+            axis=1,
+            ascending=False,
+            method="first"
+        )
+
+        return test_preds_rank
+
+
+    def select_top_bottom(self, test_preds_rank, top_n=20):
+        rows = []
+
+        for date, row in test_preds_rank.iterrows():
+            row = row.dropna()
+
+            longs = row.nsmallest(top_n).index
+            shorts = row.nlargest(top_n).index
+
+            for ticker in longs:
+                rows.append({
+                    "Date": date,
+                    "Ticker": ticker,
+                    "side": "long",
+                    "rank": row[ticker],
+                })
+
+            for ticker in shorts:
+                rows.append({
+                    "Date": date,
+                    "Ticker": ticker,
+                    "side": "short",
+                    "rank": row[ticker],
+                })
+
+        return pd.DataFrame(rows)
+
+
+    def run_data(self): 
+        test_preds = self.fit_model()
+        test_preds_rank = self.clean_preds(test_preds)
+
+        selected_df = self.select_top_bottom(test_preds_rank, top_n=20)
+
+        selected_df = selected_df.merge(
+            test_preds[["Date", "Ticker", "prediction", "future_return_5d"]],
+            on=["Date", "Ticker"],
+            how="left"
+        )
+
+        return selected_df
 
