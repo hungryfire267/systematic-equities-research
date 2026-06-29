@@ -4,11 +4,19 @@ from scipy.optimize import minimize
 
 
 class MeanVarianceOptimiser:
-    def __init__(self, predicted_df, returns_df, covariance_window=63, weight_bound=0.10):
-        self.selected_df = predicted_df.copy()
+    def __init__(
+        self,
+        selected_df: pd.DataFrame,
+        returns_df: pd.DataFrame,
+        covariance_window: int = 63,
+        weight_bound: float = 0.10,
+        ridge: float = 1e-4,
+    ):
+        self.selected_df = selected_df.copy()
         self.returns_df = returns_df.copy()
         self.covariance_window = covariance_window
         self.weight_bound = weight_bound
+        self.ridge = ridge
 
         self.selected_df["Date"] = pd.to_datetime(self.selected_df["Date"])
 
@@ -18,41 +26,33 @@ class MeanVarianceOptimiser:
 
         self.returns_df.index = pd.to_datetime(self.returns_df.index)
 
-    def get_mu_cov(self, date):
-        day_df = self.selected_df[self.selected_df["Date"] == date].copy()
-        tickers = day_df["Ticker"].tolist()
-
-        mu = day_df.set_index("Ticker").loc[tickers, "prediction"].values
-
-        cov = (
-            self.returns_df.loc[:date, tickers]
-            .tail(self.covariance_window)
-            .cov()
-            .values
-        )
-
-        return tickers, mu, cov
-
     def neg_sharpe(self, weights, mu, cov):
         port_return = weights @ mu
         port_vol = np.sqrt(weights @ cov @ weights)
+        port_vol = max(port_vol, 1e-8)
+        return -(port_return / port_vol)
 
-        if port_vol == 0:
-            return 1e9
-
-        return -port_return / port_vol
-
-    def optimise_one_date(self, date):
-        tickers, mu, cov = self.get_mu_cov(date)
+    def optimise_side(self, tickers, mu, cov, side):
         n = len(tickers)
 
-        x0 = np.ones(n) / n
+        if n == 0:
+            raise ValueError(f"No tickers for {side}")
 
-        bounds = [(-self.weight_bound, self.weight_bound)] * n
+        min_required_bound = 1 / n
+        effective_bound = max(self.weight_bound, min_required_bound)
+
+        x0 = np.ones(n) / n
+        bounds = [(0.0, effective_bound)] * n
 
         constraints = [
-            {"type": "eq", "fun": lambda w: np.sum(w)}
+            {"type": "eq", "fun": lambda w: np.sum(w) - 1.0}
         ]
+
+        if side == "short":
+            mu = -mu
+
+        cov = np.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
+        cov = cov + np.eye(n) * self.ridge
 
         result = minimize(
             self.neg_sharpe,
@@ -61,28 +61,80 @@ class MeanVarianceOptimiser:
             method="SLSQP",
             bounds=bounds,
             constraints=constraints,
+            options={"maxiter": 1000, "ftol": 1e-9},
         )
 
         if not result.success:
-            raise ValueError(result.message)
+            print(f"{side} optimisation failed: {result.message}")
+            weights = x0
+        else:
+            weights = result.x
+
+        weights = np.clip(weights, 0.0, effective_bound)
+
+        if weights.sum() == 0:
+            weights = x0
+        else:
+            weights = weights / weights.sum()
+
+        if side == "short":
+            weights = -weights
 
         return pd.DataFrame({
-            "Date": date,
             "Ticker": tickers,
-            "weight": result.x
+            "weight": weights,
+            "side": side,
         })
 
+    def optimise_one_date(self, date):
+        date = pd.Timestamp(date)
+
+        day_df = self.selected_df[self.selected_df["Date"] == date].copy()
+        portfolio_parts = []
+
+        for side in ["long", "short"]:
+            side_df = day_df[day_df["side"] == side].copy()
+
+            tickers = side_df["Ticker"].tolist()
+
+            mu = (
+                side_df
+                .set_index("Ticker")
+                .loc[tickers, "prediction"]
+                .astype(float)
+                .values
+            )
+
+            cov = (
+                self.returns_df
+                .loc[:date, tickers]
+                .tail(self.covariance_window)
+                .cov()
+                .values
+            )
+
+            weights_df = self.optimise_side(
+                tickers=tickers,
+                mu=mu,
+                cov=cov,
+                side=side,
+            )
+
+            weights_df["Date"] = date
+            portfolio_parts.append(weights_df)
+
+        return pd.concat(portfolio_parts, ignore_index=True)
+
     def run_data(self):
-        rows = []
+        portfolio_list = []
 
-        for date in sorted(self.selected_df["Date"].unique()):
+        dates = sorted(self.selected_df["Date"].dropna().unique())
+
+        for date in dates:
             try:
-                weights = self.optimise_one_date(date)
-                rows.append(weights)
+                weights_df = self.optimise_one_date(date)
+                portfolio_list.append(weights_df)
             except Exception as e:
-                print(f"{date}: optimisation failed: {e}")
+                print(f"{date}: optimisation skipped ({e})")
 
-        if not rows:
-            raise ValueError("No successful optimisations.")
-
-        return pd.concat(rows, ignore_index=True)
+        return pd.concat(portfolio_list, ignore_index=True)
