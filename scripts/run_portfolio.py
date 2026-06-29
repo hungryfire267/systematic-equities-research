@@ -9,5 +9,7 @@ print("hello")
 model_class = LightGBMRegressionModel
 print("hello")
 topbottom20 = TopBottom20Selector(LightGBMRegressionModel).run_data()
+returns_df 
+MeanVarianceOptimiser(topbottom20, )
 print("hello")
 print(topbottom20)
