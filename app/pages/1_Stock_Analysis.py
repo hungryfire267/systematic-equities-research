@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 import os
 import pandas as pd
 from pathlib import Path
@@ -6,6 +9,40 @@ import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 COMPANIES_DIR = BASE_DIR / "data"/ "raw" / "companies"
+
+load_dotenv()
+
+ai_prompt_instructions = {
+    "overview": """
+        You are writing a concise company overview for an investment dashboard.
+
+        Using the information below, write a factual summary in 3–4 sentences.
+
+        Include:
+        - What the company does.
+        - Its primary products or services.
+        - The industries or sectors it operates in.
+        - Any notable geographic presence or market position.
+
+        Do not discuss recent share price performance, future outlook, investment recommendations or financial advice.
+        Keep the tone professional and objective.
+
+        Company:
+        {Name}
+
+        Ticker:
+        {Ticker}
+
+        Sector:
+        {Sector}
+
+        Industry:
+        {Industry}
+
+        Business Description:
+        {Business Description}
+    """
+}
 
 
 companies_path_dict = { 
@@ -20,7 +57,7 @@ company_df_path = os.path.join(BASE_DIR, "data/asx_companies.csv")
 company_df = pd.read_csv(company_df_path)
 asx_codes = company_df["asxCode"].tolist()
 
-print("hello")
+
 
 st.title("Stock Analysis")
 
@@ -52,12 +89,62 @@ if st.session_state.success:
     
     company_name = company_df.loc[company_df["asxCode"] == company_code, "companyName"].iloc[0]
     company_name = company_name.rstrip(".")
-    st.subheader(f"Visualisations for {company_name}")
+    
+    st.markdown(f"""
+        <p style="font-size:20px; line-height:1.6;">
+        This page provides a stock-level overview of 
+        <strong>{company_name} ({final_company_code})</strong>, showing how its price,
+        returns and risk profile have changed over the selected period.
+        </p>
+
+        <p style="font-size:20px; line-height:1.6;">
+        The visualisations allow users to inspect historical price movements, compare different metrics,
+        and assess the stock’s behaviour through quantitative indicators such as returns, volatility,
+        drawdowns and model-based signals.
+        </p>
+
+        <p style="font-size:20px; line-height:1.6;">
+        This overview is intended to support exploratory equity analysis rather than provide financial advice.
+        </p>
+        """, unsafe_allow_html=True
+    )
+    
+    st.subheader("Summary")
+    ai_client = genai.Client()
+    full_prompt = ai_prompt_instructions["overview"] + f"\n The company name is {company_name}"
+    try: 
+        response = ai_client.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=full_prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.5
+            )
+        )
+        
+        st.write(response.text)
+    except Exception as e: 
+        print(e)
     
     prices_df = pd.read_parquet(companies_path_dict["Prices"])
     market_cap_df = pd.read_parquet(companies_path_dict["Market Cap"])
     volume_df = pd.read_parquet(companies_path_dict["Volume"])
     returns_df = pd.read_parquet(companies_path_dict["Returns"])
+    
+    st.subheader(f"Price Statistics")
+    
+    company_price_df = 
+    
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    
+    
+    
+    
+    
+    
+    
+    st.subheader(f"Visualisations for {company_name}")
     
     df_map_dict = dict() 
     for metric in companies_path_dict.keys(): 
@@ -125,7 +212,7 @@ if st.session_state.success:
         )
 
         st.plotly_chart(fig, width="stretch")
-            
+
         
         
         

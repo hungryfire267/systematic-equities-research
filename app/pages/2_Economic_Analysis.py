@@ -37,7 +37,7 @@ ai_prompt_instructions = {
     5. Provide a high-level explanation of likely drivers behind the observed movements, referencing major economic, monetary policy, commodity, or geopolitical events where relevant.
     6. Briefly discuss what currency movements may imply for equity returns, sector performance, export/import exposure, risk appetite, or systematic investment signals. Do not predict future market movements.
 
-    Keep the response concise, clear, and suitable for an investment dashboard. Maximum 20 sentences (no headings3).
+    Keep the response concise, clear, and suitable for an investment dashboard. Maximum 20 sentences (no headings).
     """,
     "Interest Rates": """
         You are a systematic equities investment quantitative analyst. You are currently looking currently 
