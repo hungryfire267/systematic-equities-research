@@ -41,7 +41,6 @@ class TopBottom20Selector:
         )
 
         X_test, test_preds = wf.run_data()
-        print(test_preds)
         return test_preds
     
     def clean_preds(self, test_preds): 
@@ -103,5 +102,5 @@ class TopBottom20Selector:
             how="left"
         )
 
-        return selected_df
+        return test_preds, test_preds_rank, selected_df
 

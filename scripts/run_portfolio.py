@@ -19,10 +19,16 @@ companies_paths_dict = {
     "returns": os.path.join(COMPANIES_DIR, "returns.parquet")
 }
 
+backtest_paths_dict = {
+    "final_portfolio": os.path.join(BACKTEST_RESULTS_DIR, "final_portfolio.parquet"),
+    "preds": os.path.join(BACKTEST_RESULTS_DIR, "test_preds"),
+    "rank": os.path.join(BACKTEST_RESULTS_DIR, "test_preds_rank.parquet")
+}
+
 returns_df = pd.read_parquet(companies_paths_dict["returns"])
 
 model_class = LightGBMRegressionModel
-topbottom20 = TopBottom20Selector(LightGBMRegressionModel).run_data()
+test_preds, test_preds_rank, topbottom20 = TopBottom20Selector(LightGBMRegressionModel).run_data()
 portfolio_df = MeanVarianceOptimiser(topbottom20, returns_df).run_data()
 final_portfolio_df = portfolio_df.merge(
     topbottom20,
@@ -39,9 +45,9 @@ final_portfolio_df = final_portfolio_df[
     ["Date", "Ticker", "weight", "side_x", "prediction", "future_return_5d", "portfolio_return"]
 ].rename(columns={"side_x": "side"})
 
-final_portfolio_df_path = os.path.join(BACKTEST_RESULTS_DIR, "final_portfolio.parquet")
-final_portfolio_df.to_parquet(final_portfolio_df_path, index=False, engine="pyarrow")
-print(final_portfolio_df)
+final_portfolio_df.to_parquet(backtest_paths_dict["final_portfolio"], index=False, engine="pyarrow")
+test_preds.to_parquet(backtest_paths_dict["preds"], index=False, engine="pyarrow")
+test_preds_rank.to_parquet(backtest_paths_dict["rank"], index=False, engine="pyarrow")
 
 strategy_returns = (
     final_portfolio_df

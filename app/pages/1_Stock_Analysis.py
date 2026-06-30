@@ -5,10 +5,25 @@ import os
 import pandas as pd
 from pathlib import Path
 import plotly.express as px
+from scripts.dashboard.get_stock_metrics import GetStockMetrics
 import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 COMPANIES_DIR = BASE_DIR / "data"/ "raw" / "companies"
+
+companies_path_dict = { 
+    "Prices": os.path.join(COMPANIES_DIR, "prices.parquet"), 
+    "Market Cap": os.path.join(COMPANIES_DIR, "market_cap.parquet"),
+    "Volume": os.path.join(COMPANIES_DIR, "volume.parquet"),
+    "Returns": os.path.join(COMPANIES_DIR, "returns.parquet")
+}
+
+
+
+
+
+
+
 
 load_dotenv()
 
@@ -26,21 +41,7 @@ ai_prompt_instructions = {
 
         Do not discuss recent share price performance, future outlook, investment recommendations or financial advice.
         Keep the tone professional and objective.
-
-        Company:
-        {Name}
-
-        Ticker:
-        {Ticker}
-
-        Sector:
-        {Sector}
-
-        Industry:
-        {Industry}
-
-        Business Description:
-        {Business Description}
+        
     """
 }
 
@@ -51,6 +52,8 @@ companies_path_dict = {
     "Volume": os.path.join(COMPANIES_DIR, "volume.parquet"),
     "Returns": os.path.join(COMPANIES_DIR, "returns.parquet")
 }
+
+
 
 
 company_df_path = os.path.join(BASE_DIR, "data/asx_companies.csv")
@@ -112,6 +115,7 @@ if st.session_state.success:
     st.subheader("Summary")
     ai_client = genai.Client()
     full_prompt = ai_prompt_instructions["overview"] + f"\n The company name is {company_name}"
+    print(full_prompt)
     try: 
         response = ai_client.models.generate_content(
             model="gemini-3.1-flash-lite",
@@ -131,14 +135,39 @@ if st.session_state.success:
     returns_df = pd.read_parquet(companies_path_dict["Returns"])
     
     st.subheader(f"Price Statistics")
-    
-    company_price_df = 
-    
-    
-    col1, col2, col3, col4 = st.columns(4)
+    price_statistics_dict = GetStockMetrics(prices_df, final_company_code).get_price_statistics()
     
     
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Start Date", price_statistics_dict["start_date"].strftime("%Y-%m-%d"))
+    col2.metric("Latest Date", price_statistics_dict["end_date"].strftime("%Y-%m-%d"))
+    col3.metric("Current Price", "$" + str(round(price_statistics_dict["latest_price"], 2)))
     
+    col4, col5, col6 = st.columns(3)
+    col4.metric("Start Price", "$" + str(round(price_statistics_dict["start_price"], 2)))
+    col5.metric("Lowest Price", "$" + str(round(price_statistics_dict["lowest_price"], 2)))
+    col6.metric("Highest Price", "$" + str(round(price_statistics_dict["highest_price"], 2)))
+
+    col7, col8, col9 = st.columns(3)
+    col7.metric("Total Return", str(round(100 * price_statistics_dict["total_return"], 2)) + "%")
+    col8.metric("Latest 21D Return", str(round(100 * price_statistics_dict["Latest 21d Return"][0], 2)) + "%")
+    col9.metric("Latest 63D Return", str(round(100 * price_statistics_dict["Latest_63d Return"][0], 2)) + "%")
+    
+    st.subheader("Risk Statistics")
+    
+    st.subheader()
+    
+    prediction_df = { 
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    }
     
     
     
