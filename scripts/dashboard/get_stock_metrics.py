@@ -9,17 +9,20 @@ from pathlib import Path
 
 # prices_df = pd.read_parquet(os.path.join(COMPANIES_DIR, "prices.parquet"))
 
-
-
+def date_parser(df: pd.DataFrame, company_code) -> pd.DataFrame: 
+    df = df.copy() 
+    df = df[["Date", company_code]]
+    df["Date"] = pd.to_datetime(df["Date"])
+    df = df.set_index("Date")
+    return df
 
 class GetStockMetrics: 
-    def __init__(self, prices_df: pd.DataFrame, company_code: str): 
-        df = prices_df.copy() 
-        df = df[["Date", company_code]]
-        df["Date"] = pd.to_datetime(df["Date"])
-        df = df.set_index("Date")
+    def __init__(self, prices_df: pd.DataFrame, test_preds: pd.DataFrame, test_preds_rank: pd.DataFrame, company_code: str): 
         self.company_code = company_code
-        self.prices_df = df.dropna(subset=[self.company_code])
+        self.prices_df = date_parser(prices_df, company_code)
+        self.prices_df = self.prices_df.dropna(subset=[self.company_code])
+        self.test_preds = date_parser(test_preds, company_code)
+        self.test_preds_rank = date_parser(test_preds_rank, company_code)
     
     def get_price_statistics(self): 
         start_date = self.prices_df.index[0]
@@ -48,6 +51,29 @@ class GetStockMetrics:
         }
         
         return price_statistic_dict
+    
+    def get_test_predictions(self): 
+        rebalance_date = self.test_preds.index[-1]
+        latest_prediction = self.test_preds.iloc[-1].values[0]
+        rank = self.test_preds_rank.iloc[-1].values[0]
+        
+        test_predictions_df = pd.DataFrame({
+            "Metric":
+                [
+                    "Rebalance Date", 
+                    "Latest 5D Prediction", 
+                    "Rank",
+                    "Model"
+                ],
+            "Value": 
+                [
+                    rebalance_date, 
+                    latest_prediction, 
+                    rank,
+                    "LightGBM"
+                ]
+        })
+        return test_predictions_df
         
         
 

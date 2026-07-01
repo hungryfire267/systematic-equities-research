@@ -10,6 +10,8 @@ import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 COMPANIES_DIR = BASE_DIR / "data"/ "raw" / "companies"
+BACKTEST_RESULTS_DIR = BASE_DIR / "results" /  "backtest"
+UNIVERSE_PATH = os.path.join(BASE_DIR, "data/asx_companies.csv")
 
 companies_path_dict = { 
     "Prices": os.path.join(COMPANIES_DIR, "prices.parquet"), 
@@ -18,12 +20,23 @@ companies_path_dict = {
     "Returns": os.path.join(COMPANIES_DIR, "returns.parquet")
 }
 
+backtest_paths_dict = {
+    "final_portfolio": os.path.join(BACKTEST_RESULTS_DIR, "final_portfolio.parquet"),
+    "preds": os.path.join(BACKTEST_RESULTS_DIR, "test_preds"),
+    "rank": os.path.join(BACKTEST_RESULTS_DIR, "test_preds_rank.parquet")
+}
 
+prices_df = pd.read_parquet(companies_path_dict["Prices"])
+market_cap_df = pd.read_parquet(companies_path_dict["Market Cap"])
+volume_df = pd.read_parquet(companies_path_dict["Volume"])
+returns_df = pd.read_parquet(companies_path_dict["Returns"])
 
+final_portfolio_df = pd.read_parquet(backtest_paths_dict["final_portfolio"])
+test_preds = pd.read_parquet(backtest_paths_dict["preds"])
+test_preds_rank = pd.read_parquet(backtest_paths_dict["rank"])
 
-
-
-
+company_df_path = os.path.join(BASE_DIR, "data/asx_companies.csv")
+company_df = pd.read_csv(UNIVERSE_PATH)
 
 load_dotenv()
 
@@ -46,21 +59,7 @@ ai_prompt_instructions = {
 }
 
 
-companies_path_dict = { 
-    "Prices": os.path.join(COMPANIES_DIR, "prices.parquet"), 
-    "Market Cap": os.path.join(COMPANIES_DIR, "market_cap.parquet"),
-    "Volume": os.path.join(COMPANIES_DIR, "volume.parquet"),
-    "Returns": os.path.join(COMPANIES_DIR, "returns.parquet")
-}
-
-
-
-
-company_df_path = os.path.join(BASE_DIR, "data/asx_companies.csv")
-company_df = pd.read_csv(company_df_path)
 asx_codes = company_df["asxCode"].tolist()
-
-
 
 st.title("Stock Analysis")
 
@@ -129,13 +128,9 @@ if st.session_state.success:
     except Exception as e: 
         print(e)
     
-    prices_df = pd.read_parquet(companies_path_dict["Prices"])
-    market_cap_df = pd.read_parquet(companies_path_dict["Market Cap"])
-    volume_df = pd.read_parquet(companies_path_dict["Volume"])
-    returns_df = pd.read_parquet(companies_path_dict["Returns"])
-    
     st.subheader(f"Price Statistics")
-    price_statistics_dict = GetStockMetrics(prices_df, final_company_code).get_price_statistics()
+    price_prediction_pipeline = GetStockMetrics(prices_df, test_preds, test_preds_rank, final_company_code)
+    price_statistics_dict = price_prediction_pipeline.get_price_statistics()
     
     
     col1, col2, col3 = st.columns(3)
@@ -155,19 +150,9 @@ if st.session_state.success:
     
     st.subheader("Risk Statistics")
     
-    st.subheader()
+    test_predictions_df = price_prediction_pipeline.get_test_predictions()
     
-    prediction_df = { 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    }
+    st.dataframe(test_predictions_df)
     
     
     

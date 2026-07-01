@@ -59,7 +59,7 @@ class TopBottom20Selector:
             method="first"
         )
 
-        return test_preds_rank
+        return test_preds_wide, test_preds_rank
 
 
     def select_top_bottom(self, test_preds_rank, top_n=20):
@@ -92,7 +92,7 @@ class TopBottom20Selector:
 
     def run_data(self): 
         test_preds = self.fit_model()
-        test_preds_rank = self.clean_preds(test_preds)
+        test_preds_wide, test_preds_rank = self.clean_preds(test_preds)
 
         selected_df = self.select_top_bottom(test_preds_rank, top_n=20)
 
@@ -101,6 +101,9 @@ class TopBottom20Selector:
             on=["Date", "Ticker"],
             how="left"
         )
+        
+        test_preds_wide = test_preds_wide.reset_index() 
+        test_preds_rank = test_preds_rank.reset_index()
 
-        return test_preds, test_preds_rank, selected_df
+        return test_preds_wide, test_preds_rank, selected_df
 
