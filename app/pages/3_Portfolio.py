@@ -88,20 +88,13 @@ col7.metric("Long Exposure", f"{long_exposure:.2f}")
 col8.metric("Short Exposure", f"{short_exposure:.2f}")
 
 st.header("Current Holdings")
-st.markdown("""
-<div style="
-    background-color:#E8F5E9;
-    padding:15px;
-    border-radius:8px;
-    border-left:5px solid #4CAF50;
-    font-size:20px;
-    line-height:1.6;
-">
-<strong>Note:</strong> Rankings are calculated over the full cross-sectional universe at each
-rebalance date. The holdings table only includes securities with non-zero portfolio
-weights; consequently, displayed ranks are not necessarily consecutive.
-</div>
-""", unsafe_allow_html=True)
+st.info(
+    """
+    Rankings are calculated over the full cross-sectional universe at each
+    rebalance date. The holdings table only includes securities with non-zero portfolio
+    weights; consequently, displayed ranks are not necessarily consecutive.
+    """
+)
 st.subheader("Long Position")
 st.dataframe(long_portfolio_df, hide_index=True)
 st.subheader("Short Position")
@@ -142,13 +135,15 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-st.header("Header")
+st.header("Portfolio Allocation by Industry")
 industry_alloc = (
     weight_df
     .groupby(["Industry", "Side"])["Weight"]
     .sum()
     .reset_index()
 )
+
+industry_alloc["Weight (%)"] = industry_alloc["Weight"] * 100
 
 fig = px.bar(
     industry_alloc,
@@ -157,22 +152,100 @@ fig = px.bar(
     color="Side",
     orientation="h",
     barmode="group",
-    title="Portfolio Allocation by Industry",
+    title=None,
     text="Weight"
 )
 
 fig.update_traces(
-    texttemplate="%{y:.2%}",
-    textposition="outside"
+    texttemplate="%{x:.2f}%",
+    textposition="inside",
+    insidetextanchor="middle",
+    textfont_size=16
 )
 
 fig.update_layout(
+    height=900,
     yaxis_tickformat=".0%",
     xaxis_title="Industry",
     yaxis_title="Portfolio Weight",
     font=dict(size=18),
-    title_font_size=26
+    title_font_size=26,
+    uniformtext_minsize=12,
+    uniformtext_mode="show",
+    title_text=""
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
+weight_df["Predicted Contribution"] = (
+    weight_df["Weight"] * weight_df["Predicted 5D Return"]
+)
+
+weight_df["Predicted Contribution (%)"] = weight_df["Predicted Contribution"] * 100
+
+st.header("Predicted Contribution Distribution")
+st.markdown("""
+This chart shows the **expected contribution of each holding to the portfolio's 5-day return forecast**.
+For each stock, predicted contribution is calculated as:
+""")
+
+st.latex(r"\text{Predicted Contribution}_i = w_i \hat{r}_i")
+
+st.markdown(r"""
+where:
+
+- $w_i$ is the portfolio weight of stock $i$
+- st.latex(r"\hat{r}_i") is the model-predicted 5-day return for stock \(i\)
+
+For **long positions**, a positive predicted return increases expected portfolio contribution.  
+For **short positions**, a negative predicted return can also contribute positively because the portfolio benefits if the stock falls.
+""")
+
+fig = px.bar(
+    weight_df.sort_values("Predicted Contribution (%)"),
+    x="Predicted Contribution (%)",
+    y="Ticker",
+    color="Side",
+    orientation="h",
+    title="Predicted Contribution to Portfolio Return",
+    text="Predicted Contribution"
+)
+
+fig.update_traces(
+    texttemplate="%{x:.3f}%",
+    textposition="inside",
+    insidetextanchor="middle",
+    textfont_size=16
+)
+
+fig.update_xaxes(tickformat=".1%")
+
+fig.update_layout(
+    height=900,
+    yaxis_tickformat=".0%",
+    xaxis_title="Portfolio Contribution (%)",
+    yaxis_title="Ticker",
+    font=dict(size=18),
+    title_font_size=26,
+    uniformtext_minsize=12,
+    uniformtext_mode="show",
+    title_text=""
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+def summarise()
+
+
+
+
+
+st.write(
+    f"On the selected rebalance date, the portfolio contains {len(df)} active positions. "
+    f"Of these, {n_positive} positions have positive predicted contributions and "
+    f"{n_negative} have negative predicted contributions. "
+    f"The long book contains {long_positive} positive and {long_negative} negative contributors, "
+    f"while the short book contains {short_positive} positive and {short_negative} negative contributors. "
+    f"The largest positive contribution comes from the {top_pos_side.lower()} position in {top_pos_ticker}, "
+    f"while the most negative contribution comes from the {top_neg_side.lower()} position in {top_neg_ticker}."
+)
