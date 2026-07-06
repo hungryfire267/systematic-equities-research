@@ -37,6 +37,7 @@ class LSTMTuner:
             "learning_rate": self.rng.choice([0.0005, 0.001, 0.002]),
             "epochs": self.rng.choice([10, 20, 30]),
             "early_stopping_patience": self.rng.choice([2, 3]),
+            "listnet_temperature": self.rng.choice([0.5, 1.0, 2.0]),
             "sequence_length": self.rng.choice([10, 20, 30]),
         }
 
@@ -93,6 +94,8 @@ class LSTMTuner:
                     "early_stopping_patience": params["early_stopping_patience"],
                     "early_stopping_min_delta": 1e-4,
                     "restore_best_weights": True,
+                    "listnet_target_transform": "zscore",
+                    "listnet_temperature": params["listnet_temperature"],
                 },
                 predict_kwargs={"verbose": 0},
             )
