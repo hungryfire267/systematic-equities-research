@@ -15,6 +15,7 @@ class WalkForwardLSTMValidator:
         rebalance_date: int,
         min_train_size: int = 30000,
         sequence_length: int = 20,
+        training_mode: str = "pointwise",
         fit_kwargs: dict[str, Any] | None = None,
         predict_kwargs: dict[str, Any] | None = None,
     ):
@@ -33,11 +34,15 @@ class WalkForwardLSTMValidator:
         self.rebalance_date = rebalance_date
         self.min_train_size = min_train_size
         self.sequence_length = sequence_length
+        self.training_mode = training_mode
         self.fit_kwargs = fit_kwargs or {}
         self.predict_kwargs = predict_kwargs or {}
 
         self.validation_start = pd.to_datetime(validation_start)
         self.validation_end = pd.to_datetime(validation_end)
+
+        if self.training_mode not in {"pointwise", "listnet"}:
+            raise ValueError("training_mode must be either 'pointwise' or 'listnet'")
 
     def get_rebalance_dates(self):
         mask = (
@@ -101,6 +106,79 @@ class WalkForwardLSTMValidator:
             pd.DataFrame(meta),
         )
 
+    def _fit_model(
+        self,
+        model: Any,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        train_meta: pd.DataFrame,
+    ):
+        if self.training_mode == "listnet":
+            return self._fit_listnet(model, X_train, y_train, train_meta)
+
+        model.fit(X_train, y_train, **self.fit_kwargs)
+        return model
+
+    def _fit_listnet(
+        self,
+        model: Any,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        train_meta: pd.DataFrame,
+    ):
+        import tensorflow as tf
+
+        from scripts.models.lstm.lstm_model import ListNetLoss
+
+        fit_kwargs = self.fit_kwargs.copy()
+        epochs = fit_kwargs.pop("epochs", 1)
+        learning_rate = fit_kwargs.pop("learning_rate", 0.001)
+        verbose = fit_kwargs.pop("verbose", 0)
+        optimizer = fit_kwargs.pop("optimizer", None)
+
+        if fit_kwargs:
+            unexpected = ", ".join(sorted(fit_kwargs))
+            raise ValueError(f"Unsupported ListNet fit_kwargs: {unexpected}")
+
+        optimizer = optimizer or tf.keras.optimizers.Adam(learning_rate=learning_rate)
+        loss_fn = ListNetLoss()
+
+        train_groups = (
+            train_meta.assign(_row=np.arange(len(train_meta)))
+            .groupby("Date", sort=True)["_row"]
+            .apply(lambda rows: rows.to_numpy())
+            .tolist()
+        )
+        train_groups = [rows for rows in train_groups if len(rows) > 1]
+
+        for epoch in range(epochs):
+            epoch_losses = []
+            for rows in train_groups:
+                X_batch = tf.convert_to_tensor(X_train[rows], dtype=tf.float32)
+                y_batch = tf.convert_to_tensor(y_train[rows], dtype=tf.float32)
+
+                with tf.GradientTape() as tape:
+                    preds = tf.reshape(model(X_batch, training=True), (-1,))
+                    loss = loss_fn(
+                        tf.expand_dims(y_batch, axis=0),
+                        tf.expand_dims(preds, axis=0),
+                    )
+
+                grads = tape.gradient(loss, model.trainable_variables)
+                grads_and_vars = [
+                    (grad, var)
+                    for grad, var in zip(grads, model.trainable_variables)
+                    if grad is not None
+                ]
+                optimizer.apply_gradients(grads_and_vars)
+                epoch_losses.append(float(loss.numpy()))
+
+            if verbose:
+                mean_loss = np.mean(epoch_losses) if epoch_losses else np.nan
+                print(f"ListNet epoch {epoch + 1}/{epochs}: loss = {mean_loss:.6f}")
+
+        return model
+
     def run_data(self):
         start_date = self.feature_matrix["Date"].min()
         adjusted_start_date = start_date + datetime.timedelta(days=365)
@@ -130,7 +208,7 @@ class WalkForwardLSTMValidator:
                 self.feature_matrix["Date"] <= date
             ].copy()
 
-            X_train, y_train, _ = self._make_sequences(train_df)
+            X_train, y_train, train_meta = self._make_sequences(train_df)
             X_test, _, test_meta = self._make_sequences(
                 test_history_df,
                 target_dates={pd.Timestamp(date)},
@@ -140,7 +218,7 @@ class WalkForwardLSTMValidator:
                 continue
 
             model = self._get_model()
-            model.fit(X_train, y_train, **self.fit_kwargs)
+            self._fit_model(model, X_train, y_train, train_meta)
 
             output = test_meta[["Date", "Ticker", self.target_col]].copy()
             preds = model.predict(X_test, **self.predict_kwargs)
