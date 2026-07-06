@@ -135,6 +135,9 @@ class WalkForwardLSTMValidator:
         learning_rate = fit_kwargs.pop("learning_rate", 0.001)
         verbose = fit_kwargs.pop("verbose", 0)
         optimizer = fit_kwargs.pop("optimizer", None)
+        early_stopping_patience = fit_kwargs.pop("early_stopping_patience", None)
+        early_stopping_min_delta = fit_kwargs.pop("early_stopping_min_delta", 0.0)
+        restore_best_weights = fit_kwargs.pop("restore_best_weights", True)
 
         if fit_kwargs:
             unexpected = ", ".join(sorted(fit_kwargs))
@@ -150,6 +153,10 @@ class WalkForwardLSTMValidator:
             .tolist()
         )
         train_groups = [rows for rows in train_groups if len(rows) > 1]
+
+        best_loss = np.inf
+        best_weights = None
+        epochs_without_improvement = 0
 
         for epoch in range(epochs):
             epoch_losses = []
@@ -173,9 +180,26 @@ class WalkForwardLSTMValidator:
                 optimizer.apply_gradients(grads_and_vars)
                 epoch_losses.append(float(loss.numpy()))
 
+            mean_loss = np.mean(epoch_losses) if epoch_losses else np.nan
             if verbose:
-                mean_loss = np.mean(epoch_losses) if epoch_losses else np.nan
                 print(f"ListNet epoch {epoch + 1}/{epochs}: loss = {mean_loss:.6f}")
+
+            if early_stopping_patience is None or np.isnan(mean_loss):
+                continue
+
+            if mean_loss < best_loss - early_stopping_min_delta:
+                best_loss = mean_loss
+                best_weights = model.get_weights()
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+
+            if epochs_without_improvement >= early_stopping_patience:
+                if restore_best_weights and best_weights is not None:
+                    model.set_weights(best_weights)
+                if verbose:
+                    print(f"Early stopping at epoch {epoch + 1}/{epochs}")
+                break
 
         return model
 
