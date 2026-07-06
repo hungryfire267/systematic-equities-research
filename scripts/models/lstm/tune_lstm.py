@@ -19,8 +19,28 @@ LSTM_DIR = RESULTS_DIR / "lstm_model"
 LSTM_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def configure_tensorflow_gpu(verbose: int = 1):
+    gpus = tf.config.list_physical_devices("GPU")
+    if not gpus:
+        if verbose:
+            print("TensorFlow GPU: none detected, using CPU")
+        return []
+
+    for gpu in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError:
+            pass
+
+    if verbose:
+        gpu_names = ", ".join(gpu.name for gpu in gpus)
+        print(f"TensorFlow GPU: using {gpu_names}")
+    return gpus
+
+
 class LSTMTuner:
     def __init__(self, n_iter, random_state, feature_matrix_df):
+        self.gpus = configure_tensorflow_gpu()
         self.rng = random.Random(random_state)
         self.random_state = random_state
         self.n_iter = n_iter
