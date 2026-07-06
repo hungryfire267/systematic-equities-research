@@ -85,10 +85,11 @@ class LSTMTuner:
                 min_train_size=25000,
                 sequence_length=params["sequence_length"],
                 training_mode="listnet",
+                verbose=1,
                 fit_kwargs={
                     "epochs": params["epochs"],
                     "learning_rate": params["learning_rate"],
-                    "verbose": 0,
+                    "verbose": 1,
                     "early_stopping_patience": params["early_stopping_patience"],
                     "early_stopping_min_delta": 1e-4,
                     "restore_best_weights": True,
