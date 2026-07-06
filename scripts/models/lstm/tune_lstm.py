@@ -35,7 +35,6 @@ class LSTMTuner:
             "hidden_dim_1": self.rng.choice([32, 64, 128]),
             "hidden_dim_2": self.rng.choice([16, 32, 64]),
             "learning_rate": self.rng.choice([0.0005, 0.001, 0.002]),
-            "batch_size": self.rng.choice([128, 256, 512]),
             "epochs": self.rng.choice([5, 10, 15]),
             "sequence_length": self.rng.choice([10, 20, 30]),
         }
@@ -51,12 +50,6 @@ class LSTMTuner:
                 hidden_dim_1=params["hidden_dim_1"],
                 hidden_dim_2=params["hidden_dim_2"],
                 output_dim=1,
-            )
-            model.compile(
-                optimizer=tf.keras.optimizers.Adam(
-                    learning_rate=params["learning_rate"]
-                ),
-                loss="mse",
             )
             return model
 
@@ -90,11 +83,11 @@ class LSTMTuner:
                 rebalance_date=1,
                 min_train_size=25000,
                 sequence_length=params["sequence_length"],
+                training_mode="listnet",
                 fit_kwargs={
                     "epochs": params["epochs"],
-                    "batch_size": params["batch_size"],
+                    "learning_rate": params["learning_rate"],
                     "verbose": 0,
-                    "shuffle": False,
                 },
                 predict_kwargs={"verbose": 0},
             )
