@@ -1,8 +1,13 @@
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 import os
 import pandas as pd
 from pathlib import Path
 import plotly.express as px
 import streamlit as st
+
+load_dotenv()
 
 st.set_page_config(
     page_title="Portfolio Analysis",
@@ -234,18 +239,99 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-def summarise()
+def predicted_contribution_summary(df: pd.DataFrame) -> str:
+    df = df.copy()
+    
+    df["predicted_contribution"] = df["Weight"] * df["Predicted 5D Return"]
 
+    n_positions = len(df)
+    n_positive = (df["predicted_contribution"] > 0).sum()
+    n_negative = (df["predicted_contribution"] < 0).sum()
 
+    long_positive = ((df["Side"] == "long") & (df["predicted_contribution"] > 0)).sum()
+    long_negative = ((df["Side"] == "long") & (df["predicted_contribution"] < 0)).sum()
 
+    short_positive = ((df["Side"] == "short") & (df["predicted_contribution"] > 0)).sum()
+    short_negative = ((df["Side"] == "short") & (df["predicted_contribution"] < 0)).sum()
 
+    top_pos_row = df.loc[df["predicted_contribution"].idxmax()]
+    top_neg_row = df.loc[df["predicted_contribution"].idxmin()]
 
-st.write(
-    f"On the selected rebalance date, the portfolio contains {len(df)} active positions. "
-    f"Of these, {n_positive} positions have positive predicted contributions and "
-    f"{n_negative} have negative predicted contributions. "
-    f"The long book contains {long_positive} positive and {long_negative} negative contributors, "
-    f"while the short book contains {short_positive} positive and {short_negative} negative contributors. "
-    f"The largest positive contribution comes from the {top_pos_side.lower()} position in {top_pos_ticker}, "
-    f"while the most negative contribution comes from the {top_neg_side.lower()} position in {top_neg_ticker}."
-)
+    top_pos_ticker = top_pos_row["Ticker"]
+    top_pos_side = top_pos_row["Side"]
+    top_pos_value = top_pos_row["predicted_contribution"]
+
+    top_neg_ticker = top_neg_row["Ticker"]
+    top_neg_side = top_neg_row["Side"]
+    top_neg_value = top_neg_row["predicted_contribution"]
+
+    summary = (
+        f"On the selected rebalance date, the portfolio contains {n_positions} active positions. "
+        f"Of these, {n_positive} positions have positive predicted contributions and {n_negative} have negative predicted contributions. "
+        f"The long book contains {long_positive} positive and {long_negative} negative contributors, "
+        f"while the short book contains {short_positive} positive and {short_negative} negative contributors. "
+        f"The largest positive contribution comes from the {top_pos_side.lower()} position in {top_pos_ticker} "
+        f"({top_pos_value:.3%}), while the most negative contribution comes from the {top_neg_side.lower()} position in "
+        f"{top_neg_ticker} ({top_neg_value:.3%})."
+    )
+
+    return summary
+
+st.write(predicted_contribution_summary(weight_df))
+
+st.header("AI Summary")
+ai_client = genai.Client()
+ai_prompt = f"""
+You are a quantitative systematic portfolio analyst at an asset manager.
+
+Write a concise portfolio commentary for the current rebalance of an ASX market-neutral top-20 long / top-20 short equity strategy.
+
+Strategy context:
+- The model ranks stocks by predicted 5-day return.
+- The strategy goes long the highest-ranked stocks and short the lowest-ranked stocks.
+- The portfolio targets approximately 1.00 long exposure, -1.00 short exposure, 0.00 net exposure, and 2.00x gross exposure.
+- The displayed active portfolio may contain fewer than 20 names on either side if some names receive zero weight after portfolio construction.
+
+Use the portfolio tables below to summarise:
+1. portfolio structure
+2. long and short positioning
+3. industry exposure and sector tilts
+4. expected return drivers from predicted contribution
+5. key concentration or portfolio
+6. Talk about expected impact to portfolio and any reasons why this has happened over {rebalance_date} in backtesting (e.g. economy and what has happened to this stock recently)
+
+Interpretation rules:
+- Long positions benefit from positive predicted returns.
+- Short positions benefit from negative predicted stock returns.
+- Do not restate every row in the tables.
+- Focus on the largest positions, largest industry tilts, top contributors, and concentration risks.
+- If the portfolio is concentrated in a small number of names or industries, say so.
+- Write in a professional buy-side tone.
+
+Keep the response under 250 words. No Headings.
+
+=== LONG HOLDINGS TABLE ===
+{long_portfolio_df}
+
+=== SHORT HOLDINGS TABLE ===
+{short_portfolio_df}
+
+=== INDUSTRY EXPOSURE TABLE ===
+{weight_df}
+
+=== PREDICTED CONTRIBUTION TABLE ===
+{weight_df}
+"""
+
+try: 
+    response = ai_client.models.generate_content(
+        model="gemini-3.1-flash-lite",
+        contents=ai_prompt,
+        config=types.GenerateContentConfig(
+            temperature=0.5
+        )
+    )
+    
+    st.write(response.text)
+except Exception as e: 
+    print(e)
