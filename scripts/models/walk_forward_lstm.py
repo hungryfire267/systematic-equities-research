@@ -16,6 +16,7 @@ class WalkForwardLSTMValidator:
         min_train_size: int = 30000,
         sequence_length: int = 20,
         training_mode: str = "pointwise",
+        verbose: int = 0,
         fit_kwargs: dict[str, Any] | None = None,
         predict_kwargs: dict[str, Any] | None = None,
     ):
@@ -35,6 +36,7 @@ class WalkForwardLSTMValidator:
         self.min_train_size = min_train_size
         self.sequence_length = sequence_length
         self.training_mode = training_mode
+        self.verbose = verbose
         self.fit_kwargs = fit_kwargs or {}
         self.predict_kwargs = predict_kwargs or {}
 
@@ -216,7 +218,7 @@ class WalkForwardLSTMValidator:
 
         predictions = []
         last_X_test = np.empty((0, self.sequence_length, len(self.feature_cols)), dtype=np.float32)
-        for date in dates:
+        for fold_idx, date in enumerate(dates, start=1):
             horizon = 5
 
             date_idx = np.where(unique_dates == date)[0][0]
@@ -239,7 +241,20 @@ class WalkForwardLSTMValidator:
             )
 
             if X_train.shape[0] < self.min_train_size or X_test.shape[0] == 0:
+                if self.verbose:
+                    print(
+                        f"LSTM fold {fold_idx}/{len(dates)} "
+                        f"{pd.Timestamp(date).date()}: skipped "
+                        f"(train={X_train.shape[0]}, test={X_test.shape[0]})"
+                    )
                 continue
+
+            if self.verbose:
+                print(
+                    f"LSTM fold {fold_idx}/{len(dates)} "
+                    f"{pd.Timestamp(date).date()}: training "
+                    f"(train={X_train.shape[0]}, test={X_test.shape[0]})"
+                )
 
             model = self._get_model()
             self._fit_model(model, X_train, y_train, train_meta)
