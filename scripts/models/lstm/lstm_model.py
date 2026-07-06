@@ -15,7 +15,12 @@ class LSTMRegressionModel(tf.keras.Model):
         self.dense = tf.keras.layers.Dense(output_dim)
         
     def call(self, inputs, training=False):
-        
+        x = self.lstm_1(inputs, training=training)
+        x = self.layers_dropout(x, training=training)
+        x = self.lstm_2(x, training=training)
+        x = self.layers_dropout_2(x, training=training)
+        return self.dense(x)
+
 
 class ListNetLoss(tf.keras.losses.Loss): 
     def __init__(self, name="listnet_loss"):
