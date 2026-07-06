@@ -35,7 +35,8 @@ class LSTMTuner:
             "hidden_dim_1": self.rng.choice([32, 64, 128]),
             "hidden_dim_2": self.rng.choice([16, 32, 64]),
             "learning_rate": self.rng.choice([0.0005, 0.001, 0.002]),
-            "epochs": self.rng.choice([5, 10, 15]),
+            "epochs": self.rng.choice([10, 20, 30]),
+            "early_stopping_patience": self.rng.choice([2, 3]),
             "sequence_length": self.rng.choice([10, 20, 30]),
         }
 
@@ -88,6 +89,9 @@ class LSTMTuner:
                     "epochs": params["epochs"],
                     "learning_rate": params["learning_rate"],
                     "verbose": 0,
+                    "early_stopping_patience": params["early_stopping_patience"],
+                    "early_stopping_min_delta": 1e-4,
+                    "restore_best_weights": True,
                 },
                 predict_kwargs={"verbose": 0},
             )
