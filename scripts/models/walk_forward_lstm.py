@@ -140,10 +140,16 @@ class WalkForwardLSTMValidator:
         early_stopping_patience = fit_kwargs.pop("early_stopping_patience", None)
         early_stopping_min_delta = fit_kwargs.pop("early_stopping_min_delta", 0.0)
         restore_best_weights = fit_kwargs.pop("restore_best_weights", True)
+        target_transform = fit_kwargs.pop("listnet_target_transform", "raw")
+        target_temperature = fit_kwargs.pop("listnet_temperature", 1.0)
 
         if fit_kwargs:
             unexpected = ", ".join(sorted(fit_kwargs))
             raise ValueError(f"Unsupported ListNet fit_kwargs: {unexpected}")
+        if target_transform not in {"raw", "zscore", "rank"}:
+            raise ValueError("listnet_target_transform must be 'raw', 'zscore', or 'rank'")
+        if target_temperature <= 0:
+            raise ValueError("listnet_temperature must be positive")
 
         optimizer = optimizer or tf.keras.optimizers.Adam(learning_rate=learning_rate)
         loss_fn = ListNetLoss()
@@ -164,7 +170,12 @@ class WalkForwardLSTMValidator:
             epoch_losses = []
             for rows in train_groups:
                 X_batch = tf.convert_to_tensor(X_train[rows], dtype=tf.float32)
-                y_batch = tf.convert_to_tensor(y_train[rows], dtype=tf.float32)
+                y_target = self._transform_listnet_target(
+                    y_train[rows],
+                    target_transform,
+                    target_temperature,
+                )
+                y_batch = tf.convert_to_tensor(y_target, dtype=tf.float32)
 
                 with tf.GradientTape() as tape:
                     preds = tf.reshape(model(X_batch, training=True), (-1,))
@@ -204,6 +215,26 @@ class WalkForwardLSTMValidator:
                 break
 
         return model
+
+    def _transform_listnet_target(
+        self,
+        y: np.ndarray,
+        target_transform: str,
+        target_temperature: float,
+    ) -> np.ndarray:
+        y = np.asarray(y, dtype=np.float32)
+
+        if target_transform == "zscore":
+            std = y.std()
+            if std > 1e-8:
+                y = (y - y.mean()) / std
+            else:
+                y = y - y.mean()
+        elif target_transform == "rank":
+            y = pd.Series(y).rank(method="average", pct=True).to_numpy(dtype=np.float32)
+            y = y - 0.5
+
+        return y / target_temperature
 
     def run_data(self):
         start_date = self.feature_matrix["Date"].min()
