@@ -45,6 +45,8 @@ class WalkForwardLSTMValidator:
         self.predict_kwargs = predict_kwargs or {}
         self.trained_fold_count = 0
         self.skipped_fold_count = 0
+        self.skipped_train_too_small_count = 0
+        self.skipped_empty_test_count = 0
 
         self.validation_start = pd.to_datetime(validation_start)
         self.validation_end = pd.to_datetime(validation_end)
@@ -262,6 +264,8 @@ class WalkForwardLSTMValidator:
         trained_fold_count = 0
         self.trained_fold_count = 0
         self.skipped_fold_count = 0
+        self.skipped_train_too_small_count = 0
+        self.skipped_empty_test_count = 0
         last_X_test = np.empty((0, self.sequence_length, len(self.feature_cols)), dtype=np.float32)
         for fold_idx, date in enumerate(dates, start=1):
             horizon = 5
@@ -285,13 +289,25 @@ class WalkForwardLSTMValidator:
                 target_dates={pd.Timestamp(date)},
             )
 
-            if X_train.shape[0] < self.min_train_size or X_test.shape[0] == 0:
+            train_too_small = X_train.shape[0] < self.min_train_size
+            empty_test = X_test.shape[0] == 0
+            if train_too_small or empty_test:
                 self.skipped_fold_count += 1
+                if train_too_small:
+                    self.skipped_train_too_small_count += 1
+                if empty_test:
+                    self.skipped_empty_test_count += 1
                 if self.verbose:
+                    reasons = []
+                    if train_too_small:
+                        reasons.append("train_too_small")
+                    if empty_test:
+                        reasons.append("empty_test")
                     print(
                         f"LSTM fold {fold_idx}/{len(dates)} "
                         f"{pd.Timestamp(date).date()}: skipped "
-                        f"(train={X_train.shape[0]}, test={X_test.shape[0]})"
+                        f"(train={X_train.shape[0]}, test={X_test.shape[0]}, "
+                        f"reason={'+'.join(reasons)})"
                     )
                 continue
 
