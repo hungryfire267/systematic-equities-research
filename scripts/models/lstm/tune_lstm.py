@@ -60,6 +60,7 @@ class LSTMTuner:
             "early_stopping_patience": self.rng.choice([2, 3]),
             "listnet_temperature": self.rng.choice([0.5, 1.0, 2.0]),
             "sequence_length": self.rng.choice([10, 20, 30]),
+            "min_train_size": self.rng.choice([5000, 10000, 15000]),
         }
 
         return param_grids
@@ -104,7 +105,7 @@ class LSTMTuner:
                 validation_start="2023-07-01",
                 validation_end="2025-06-30",
                 rebalance_date=1,
-                min_train_size=25000,
+                min_train_size=params["min_train_size"],
                 sequence_length=params["sequence_length"],
                 training_mode="listnet",
                 transfer_learning=True,
@@ -127,23 +128,42 @@ class LSTMTuner:
             X_test, prediction_outputs = wf.run_data()
 
             score = self.mean_ic(prediction_outputs)
+            trained_folds = wf.trained_fold_count
+            skipped_folds = wf.skipped_fold_count
+
+            if prediction_outputs.empty:
+                print(
+                    f"{i + 1}/{self.n_iter}: no trained folds "
+                    f"(min_train_size={params['min_train_size']}, "
+                    f"sequence_length={params['sequence_length']}, "
+                    f"skipped_folds={skipped_folds})"
+                )
 
             row = {
                 **params,
                 "mean_ic": score,
+                "trained_folds": trained_folds,
+                "skipped_folds": skipped_folds,
             }
 
             results.append(row)
 
-            print(f"{i + 1}/{self.n_iter}: IC = {score:.5f}")
+            print(
+                f"{i + 1}/{self.n_iter}: IC = {score:.5f} "
+                f"(trained_folds={trained_folds}, skipped_folds={skipped_folds})"
+            )
 
         results_df = (
             pd.DataFrame(results)
-            .sort_values("mean_ic", ascending=False)
+            .sort_values("mean_ic", ascending=False, na_position="last")
             .reset_index(drop=True)
         )
 
-        best_params = results_df.iloc[0].drop("mean_ic").to_dict()
+        valid_results_df = results_df.dropna(subset=["mean_ic"])
+        if valid_results_df.empty:
+            best_params = {}
+        else:
+            best_params = valid_results_df.iloc[0].drop("mean_ic").to_dict()
 
         results_df.to_csv(
             LSTM_DIR / "random_search.csv",
