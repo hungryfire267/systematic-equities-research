@@ -18,6 +18,9 @@ class WalkForwardLSTMValidator:
         training_mode: str = "pointwise",
         transfer_learning: bool = False,
         reset_model_every_n_folds: int | None = None,
+        missing_strategy: str = "drop",
+        allow_short_sequences: bool = False,
+        add_listing_age_features: bool = False,
         verbose: int = 0,
         fit_kwargs: dict[str, Any] | None = None,
         predict_kwargs: dict[str, Any] | None = None,
@@ -26,13 +29,17 @@ class WalkForwardLSTMValidator:
         self.feature_matrix["Date"] = pd.to_datetime(self.feature_matrix["Date"])
 
         self.target_col = "future_return_5d"
-        self.feature_cols = self.feature_matrix.columns[2:].drop(self.target_col)
         self.model = model
 
         if rebalance_date not in range(1, 6):
             raise ValueError("Rebalance date must be a weekday")
         if sequence_length < 1:
             raise ValueError("sequence_length must be at least 1")
+        if missing_strategy not in {"drop", "ffill_zero", "ffill_zero_indicator"}:
+            raise ValueError(
+                "missing_strategy must be 'drop', 'ffill_zero', "
+                "or 'ffill_zero_indicator'"
+            )
 
         self.rebalance_date = rebalance_date
         self.min_train_size = min_train_size
@@ -40,6 +47,12 @@ class WalkForwardLSTMValidator:
         self.training_mode = training_mode
         self.transfer_learning = transfer_learning
         self.reset_model_every_n_folds = reset_model_every_n_folds
+        self.missing_strategy = missing_strategy
+        self.allow_short_sequences = allow_short_sequences
+        self.add_listing_age_features = add_listing_age_features
+        self.base_feature_cols = self.feature_matrix.columns[2:].drop(self.target_col)
+        self.feature_matrix = self._prepare_feature_matrix(self.feature_matrix)
+        self.feature_cols = self.feature_matrix.columns[2:].drop(self.target_col)
         self.verbose = verbose
         self.fit_kwargs = fit_kwargs or {}
         self.predict_kwargs = predict_kwargs or {}
@@ -55,6 +68,32 @@ class WalkForwardLSTMValidator:
             raise ValueError("training_mode must be either 'pointwise' or 'listnet'")
         if reset_model_every_n_folds is not None and reset_model_every_n_folds < 1:
             raise ValueError("reset_model_every_n_folds must be at least 1")
+
+    def _prepare_feature_matrix(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.replace([np.inf, -np.inf], np.nan).sort_values(["Ticker", "Date"]).copy()
+        feature_cols = list(self.base_feature_cols)
+
+        if self.add_listing_age_features:
+            days_since_first_seen = df.groupby("Ticker").cumcount().astype(np.float32)
+            df["days_since_first_seen"] = days_since_first_seen
+            df["has_full_sequence_history"] = (
+                days_since_first_seen >= self.sequence_length - 1
+            ).astype(np.float32)
+            df["is_new_listing"] = (days_since_first_seen < 60).astype(np.float32)
+
+        if self.missing_strategy == "drop":
+            return df
+
+        missing_mask = df[feature_cols].isna()
+        if self.missing_strategy == "ffill_zero_indicator":
+            for col in feature_cols:
+                df[f"{col}_missing"] = missing_mask[col].astype(np.float32)
+            df["feature_missing_count"] = missing_mask.sum(axis=1).astype(np.float32)
+            df["feature_missing_pct"] = missing_mask.mean(axis=1).astype(np.float32)
+
+        df[feature_cols] = df.groupby("Ticker", sort=False)[feature_cols].ffill()
+        df[feature_cols] = df[feature_cols].fillna(0.0)
+        return df
 
     def get_rebalance_dates(self):
         mask = (
@@ -87,14 +126,26 @@ class WalkForwardLSTMValidator:
             targets = ticker_df[self.target_col].to_numpy(dtype=np.float32)
             dates = pd.to_datetime(ticker_df["Date"])
 
-            for idx in range(self.sequence_length - 1, len(ticker_df)):
+            start_idx = 0 if self.allow_short_sequences else self.sequence_length - 1
+            for idx in range(start_idx, len(ticker_df)):
                 date = pd.Timestamp(dates.iloc[idx])
                 if target_dates is not None and date not in target_dates:
                     continue
                 if np.isnan(targets[idx]):
                     continue
 
-                window = features[idx - self.sequence_length + 1 : idx + 1]
+                window_start = idx - self.sequence_length + 1
+                if window_start < 0:
+                    window = features[: idx + 1]
+                    pad_rows = -window_start
+                    window = np.pad(
+                        window,
+                        ((pad_rows, 0), (0, 0)),
+                        mode="constant",
+                        constant_values=0.0,
+                    )
+                else:
+                    window = features[window_start : idx + 1]
                 if np.isnan(window).any():
                     continue
 
