@@ -16,6 +16,8 @@ class WalkForwardLSTMValidator:
         min_train_size: int = 30000,
         sequence_length: int = 20,
         training_mode: str = "pointwise",
+        transfer_learning: bool = False,
+        reset_model_every_n_folds: int | None = None,
         verbose: int = 0,
         fit_kwargs: dict[str, Any] | None = None,
         predict_kwargs: dict[str, Any] | None = None,
@@ -36,6 +38,8 @@ class WalkForwardLSTMValidator:
         self.min_train_size = min_train_size
         self.sequence_length = sequence_length
         self.training_mode = training_mode
+        self.transfer_learning = transfer_learning
+        self.reset_model_every_n_folds = reset_model_every_n_folds
         self.verbose = verbose
         self.fit_kwargs = fit_kwargs or {}
         self.predict_kwargs = predict_kwargs or {}
@@ -45,6 +49,8 @@ class WalkForwardLSTMValidator:
 
         if self.training_mode not in {"pointwise", "listnet"}:
             raise ValueError("training_mode must be either 'pointwise' or 'listnet'")
+        if reset_model_every_n_folds is not None and reset_model_every_n_folds < 1:
+            raise ValueError("reset_model_every_n_folds must be at least 1")
 
     def get_rebalance_dates(self):
         mask = (
@@ -114,11 +120,12 @@ class WalkForwardLSTMValidator:
         X_train: np.ndarray,
         y_train: np.ndarray,
         train_meta: pd.DataFrame,
+        fit_kwargs: dict[str, Any],
     ):
         if self.training_mode == "listnet":
-            return self._fit_listnet(model, X_train, y_train, train_meta)
+            return self._fit_listnet(model, X_train, y_train, train_meta, fit_kwargs)
 
-        model.fit(X_train, y_train, **self.fit_kwargs)
+        model.fit(X_train, y_train, **fit_kwargs)
         return model
 
     def _fit_listnet(
@@ -127,12 +134,13 @@ class WalkForwardLSTMValidator:
         X_train: np.ndarray,
         y_train: np.ndarray,
         train_meta: pd.DataFrame,
+        fit_kwargs: dict[str, Any],
     ):
         import tensorflow as tf
 
         from scripts.models.lstm.lstm_model import ListNetLoss
 
-        fit_kwargs = self.fit_kwargs.copy()
+        fit_kwargs = fit_kwargs.copy()
         epochs = fit_kwargs.pop("epochs", 1)
         learning_rate = fit_kwargs.pop("learning_rate", 0.001)
         verbose = fit_kwargs.pop("verbose", 0)
@@ -248,6 +256,8 @@ class WalkForwardLSTMValidator:
         unique_dates = np.sort(self.feature_matrix["Date"].unique())
 
         predictions = []
+        model = None
+        trained_fold_count = 0
         last_X_test = np.empty((0, self.sequence_length, len(self.feature_cols)), dtype=np.float32)
         for fold_idx, date in enumerate(dates, start=1):
             horizon = 5
@@ -280,15 +290,32 @@ class WalkForwardLSTMValidator:
                     )
                 continue
 
+            reset_due = (
+                not self.transfer_learning
+                or model is None
+                or (
+                    self.reset_model_every_n_folds is not None
+                    and trained_fold_count % self.reset_model_every_n_folds == 0
+                )
+            )
+            fit_kwargs = self.fit_kwargs.copy()
+            if self.transfer_learning and not reset_due:
+                fine_tune_epochs = fit_kwargs.pop("fine_tune_epochs", None)
+                if fine_tune_epochs is not None:
+                    fit_kwargs["epochs"] = fine_tune_epochs
+
             if self.verbose:
+                training_style = "fresh" if reset_due else "fine-tune"
                 print(
                     f"LSTM fold {fold_idx}/{len(dates)} "
-                    f"{pd.Timestamp(date).date()}: training "
+                    f"{pd.Timestamp(date).date()}: {training_style} training "
                     f"(train={X_train.shape[0]}, test={X_test.shape[0]})"
                 )
 
-            model = self._get_model()
-            self._fit_model(model, X_train, y_train, train_meta)
+            if reset_due:
+                model = self._get_model()
+            self._fit_model(model, X_train, y_train, train_meta, fit_kwargs)
+            trained_fold_count += 1
 
             output = test_meta[["Date", "Ticker", self.target_col]].copy()
             preds = model.predict(X_test, **self.predict_kwargs)
