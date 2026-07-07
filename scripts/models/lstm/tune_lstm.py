@@ -18,6 +18,9 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 LSTM_DIR = RESULTS_DIR / "lstm_model"
 LSTM_DIR.mkdir(parents=True, exist_ok=True)
 
+MIN_TRAINED_FOLDS = 40
+MIN_COVERAGE = 0.5
+
 
 def configure_tensorflow_gpu(verbose: int = 1):
     gpus = tf.config.list_physical_devices("GPU")
@@ -59,8 +62,8 @@ class LSTMTuner:
             "fine_tune_epochs": self.rng.choice([2, 3, 5]),
             "early_stopping_patience": self.rng.choice([2, 3]),
             "listnet_temperature": self.rng.choice([0.5, 1.0, 2.0]),
-            "sequence_length": self.rng.choice([10, 20, 30]),
-            "min_train_size": self.rng.choice([5000, 10000, 15000]),
+            "sequence_length": self.rng.choice([5, 10, 20]),
+            "min_train_size": self.rng.choice([3000, 5000, 8000]),
         }
 
         return param_grids
@@ -127,9 +130,20 @@ class LSTMTuner:
 
             X_test, prediction_outputs = wf.run_data()
 
-            score = self.mean_ic(prediction_outputs)
+            raw_score = self.mean_ic(prediction_outputs)
             trained_folds = wf.trained_fold_count
             skipped_folds = wf.skipped_fold_count
+            total_folds = trained_folds + skipped_folds
+            coverage = trained_folds / total_folds if total_folds else 0.0
+            score = raw_score
+
+            if trained_folds < MIN_TRAINED_FOLDS or coverage < MIN_COVERAGE:
+                score = np.nan
+                print(
+                    f"{i + 1}/{self.n_iter}: rejected low-coverage trial "
+                    f"(raw_ic={raw_score:.5f}, trained_folds={trained_folds}, "
+                    f"coverage={coverage:.1%})"
+                )
 
             if prediction_outputs.empty:
                 print(
@@ -142,15 +156,20 @@ class LSTMTuner:
             row = {
                 **params,
                 "mean_ic": score,
+                "raw_mean_ic": raw_score,
                 "trained_folds": trained_folds,
                 "skipped_folds": skipped_folds,
+                "coverage": coverage,
+                "skipped_train_too_small": wf.skipped_train_too_small_count,
+                "skipped_empty_test": wf.skipped_empty_test_count,
             }
 
             results.append(row)
 
             print(
                 f"{i + 1}/{self.n_iter}: IC = {score:.5f} "
-                f"(trained_folds={trained_folds}, skipped_folds={skipped_folds})"
+                f"(raw_ic={raw_score:.5f}, trained_folds={trained_folds}, "
+                f"skipped_folds={skipped_folds}, coverage={coverage:.1%})"
             )
 
         results_df = (
