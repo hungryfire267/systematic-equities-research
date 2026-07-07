@@ -113,6 +113,9 @@ class LSTMTuner:
                 training_mode="listnet",
                 transfer_learning=True,
                 reset_model_every_n_folds=26,
+                missing_strategy="ffill_zero_indicator",
+                allow_short_sequences=True,
+                add_listing_age_features=True,
                 verbose=1,
                 fit_kwargs={
                     "epochs": params["epochs"],
@@ -162,6 +165,9 @@ class LSTMTuner:
                 "coverage": coverage,
                 "skipped_train_too_small": wf.skipped_train_too_small_count,
                 "skipped_empty_test": wf.skipped_empty_test_count,
+                "missing_strategy": "ffill_zero_indicator",
+                "allow_short_sequences": True,
+                "add_listing_age_features": True,
             }
 
             results.append(row)
