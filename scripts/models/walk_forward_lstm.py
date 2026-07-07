@@ -43,6 +43,8 @@ class WalkForwardLSTMValidator:
         self.verbose = verbose
         self.fit_kwargs = fit_kwargs or {}
         self.predict_kwargs = predict_kwargs or {}
+        self.trained_fold_count = 0
+        self.skipped_fold_count = 0
 
         self.validation_start = pd.to_datetime(validation_start)
         self.validation_end = pd.to_datetime(validation_end)
@@ -258,6 +260,8 @@ class WalkForwardLSTMValidator:
         predictions = []
         model = None
         trained_fold_count = 0
+        self.trained_fold_count = 0
+        self.skipped_fold_count = 0
         last_X_test = np.empty((0, self.sequence_length, len(self.feature_cols)), dtype=np.float32)
         for fold_idx, date in enumerate(dates, start=1):
             horizon = 5
@@ -282,6 +286,7 @@ class WalkForwardLSTMValidator:
             )
 
             if X_train.shape[0] < self.min_train_size or X_test.shape[0] == 0:
+                self.skipped_fold_count += 1
                 if self.verbose:
                     print(
                         f"LSTM fold {fold_idx}/{len(dates)} "
@@ -299,8 +304,8 @@ class WalkForwardLSTMValidator:
                 )
             )
             fit_kwargs = self.fit_kwargs.copy()
+            fine_tune_epochs = fit_kwargs.pop("fine_tune_epochs", None)
             if self.transfer_learning and not reset_due:
-                fine_tune_epochs = fit_kwargs.pop("fine_tune_epochs", None)
                 if fine_tune_epochs is not None:
                     fit_kwargs["epochs"] = fine_tune_epochs
 
@@ -316,6 +321,7 @@ class WalkForwardLSTMValidator:
                 model = self._get_model()
             self._fit_model(model, X_train, y_train, train_meta, fit_kwargs)
             trained_fold_count += 1
+            self.trained_fold_count = trained_fold_count
 
             output = test_meta[["Date", "Ticker", self.target_col]].copy()
             preds = model.predict(X_test, **self.predict_kwargs)
@@ -326,6 +332,13 @@ class WalkForwardLSTMValidator:
             last_X_test = X_test
 
         if not predictions:
+            if self.verbose:
+                print(
+                    "LSTM walk-forward: no folds trained "
+                    f"(min_train_size={self.min_train_size}, "
+                    f"sequence_length={self.sequence_length}, "
+                    f"skipped_folds={self.skipped_fold_count})"
+                )
             empty_predictions = pd.DataFrame(
                 columns=["Date", "Ticker", self.target_col, "prediction", "model_name"]
             )
