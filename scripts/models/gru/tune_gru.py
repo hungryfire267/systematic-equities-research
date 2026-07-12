@@ -7,16 +7,16 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-from scripts.models.lstm.lstm_model import LSTMRegressionModel
-from scripts.models.walk_forward_lstm import WalkForwardLSTMValidator
+from scripts.models.gru.gru_model import GRURegressionModel
+from scripts.models.walk_forward_gru import WalkForwardGRUValidator
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 RESULTS_DIR = BASE_DIR / "results"
 
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-LSTM_DIR = RESULTS_DIR / "lstm_model"
-LSTM_DIR.mkdir(parents=True, exist_ok=True)
+GRU_DIR = RESULTS_DIR / "gru_model"
+GRU_DIR.mkdir(parents=True, exist_ok=True)
 
 MIN_TRAINED_FOLDS = 40
 MIN_COVERAGE = 0.5
@@ -41,7 +41,7 @@ def configure_tensorflow_gpu(verbose: int = 1):
     return gpus
 
 
-class LSTMTuner:
+class GRUTuner:
     def __init__(self, n_iter, random_state, feature_matrix_df):
         self.gpus = configure_tensorflow_gpu()
         self.rng = random.Random(random_state)
@@ -54,29 +54,16 @@ class LSTMTuner:
 
     def get_param_grids(self):
         param_grids = {
-<<<<<<< HEAD
-            "dropout_rate": self.rng.choice([0.1, 0.2, 0.3]),
-            "hidden_dim_1": self.rng.choice([32, 64, 128]),
-            "hidden_dim_2": self.rng.choice([16, 32, 64]),
-            "learning_rate": self.rng.choice([0.0005, 0.001, 0.002]),
-            "epochs": self.rng.choice([10, 20, 30]),
-            "fine_tune_epochs": self.rng.choice([2, 3, 5]),
-            "early_stopping_patience": self.rng.choice([2, 3]),
-            "listnet_temperature": self.rng.choice([0.5, 1.0, 2.0]),
-            "sequence_length": self.rng.choice([5, 10, 20]),
-            "min_train_size": self.rng.choice([3000, 5000, 8000]),
-=======
             "dropout_rate": self.rng.choice([0.1, 0.2]),
-            "hidden_dim_1": self.rng.choice([32, 64]),
-            "hidden_dim_2": self.rng.choice([16, 32]),
+            "hidden_dim": self.rng.choice([32, 64]),
             "learning_rate": self.rng.choice([0.0002, 0.0005, 0.001]),
             "epochs": 10,
             "fine_tune_epochs": self.rng.choice([1, 2, 3]),
             "early_stopping_patience": 3,
             "listnet_temperature": 0.5,
+            "listnet_max_train_groups": self.rng.choice([252, 378]),
             "sequence_length": self.rng.choice([10, 20]),
             "min_train_size": 10000
->>>>>>> 516edd4 (Added tune_lstm)
         }
 
         return param_grids
@@ -85,10 +72,9 @@ class LSTMTuner:
         def model_factory():
             tf.keras.utils.set_random_seed(self.random_state)
 
-            model = LSTMRegressionModel(
+            model = GRURegressionModel(
                 dropout_rate=params["dropout_rate"],
-                hidden_dim_1=params["hidden_dim_1"],
-                hidden_dim_2=params["hidden_dim_2"],
+                hidden_dim=params["hidden_dim"],
                 output_dim=1,
             )
             return model
@@ -115,7 +101,7 @@ class LSTMTuner:
 
             model = self.build_model(params)
 
-            wf = WalkForwardLSTMValidator(
+            wf = WalkForwardGRUValidator(
                 self.feature_matrix_df,
                 model,
                 validation_start="2023-07-01",
@@ -129,6 +115,7 @@ class LSTMTuner:
                 missing_strategy="ffill_zero_indicator",
                 allow_short_sequences=True,
                 add_listing_age_features=True,
+                precompute_sequences=True,
                 verbose=1,
                 fit_kwargs={
                     "epochs": params["epochs"],
@@ -140,6 +127,7 @@ class LSTMTuner:
                     "restore_best_weights": True,
                     "listnet_target_transform": "zscore",
                     "listnet_temperature": params["listnet_temperature"],
+                    "listnet_max_train_groups": params["listnet_max_train_groups"],
                 },
                 predict_kwargs={"verbose": 0},
             )
@@ -171,6 +159,7 @@ class LSTMTuner:
 
             row = {
                 **params,
+                "model_type": "gru",
                 "mean_ic": score,
                 "raw_mean_ic": raw_score,
                 "trained_folds": trained_folds,
@@ -181,6 +170,7 @@ class LSTMTuner:
                 "missing_strategy": "ffill_zero_indicator",
                 "allow_short_sequences": True,
                 "add_listing_age_features": True,
+                "precompute_sequences": True,
             }
 
             results.append(row)
@@ -204,9 +194,9 @@ class LSTMTuner:
             best_params = valid_results_df.iloc[0].drop("mean_ic").to_dict()
 
         results_df.to_csv(
-            LSTM_DIR / "random_search.csv",
+            GRU_DIR / "random_search.csv",
             index=False,
         )
 
-        with open(os.path.join(LSTM_DIR, "best_params.json"), "w") as f:
+        with open(os.path.join(GRU_DIR, "best_params.json"), "w") as f:
             json.dump(best_params, f, indent=4)

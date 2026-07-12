@@ -1,0 +1,23 @@
+{
+    "dropout_rate": 0.1,
+    "hidden_dim": 32,
+    "learning_rate": 0.001,
+    "epochs": 10,
+    "fine_tune_epochs": 2,
+    "early_stopping_patience": 3,
+    "listnet_temperature": 0.5,
+    "listnet_max_train_groups": 252,
+    "sequence_length": 10,
+    "min_train_size": 10000,
+    "model_type": "gru",
+    "raw_mean_ic": 0.020327647815369766,
+    "trained_folds": 94,
+    "skipped_folds": 9,
+    "coverage": 0.912621359223301,
+    "skipped_train_too_small": 9,
+    "skipped_empty_test": 0,
+    "missing_strategy": "ffill_zero_indicator",
+    "allow_short_sequences": true,
+    "add_listing_age_features": true,
+    "precompute_sequences": true
+}

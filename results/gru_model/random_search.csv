@@ -1,0 +1,7 @@
+dropout_rate,hidden_dim,learning_rate,epochs,fine_tune_epochs,early_stopping_patience,listnet_temperature,listnet_max_train_groups,sequence_length,min_train_size,model_type,mean_ic,raw_mean_ic,trained_folds,skipped_folds,coverage,skipped_train_too_small,skipped_empty_test,missing_strategy,allow_short_sequences,add_listing_age_features,precompute_sequences
+0.1,32,0.001,10,2,3,0.5,252,10,10000,gru,0.020327647815369766,0.020327647815369766,94,9,0.912621359223301,9,0,ffill_zero_indicator,True,True,True
+0.1,64,0.0005,10,2,3,0.5,252,10,10000,gru,0.018891643375063747,0.018891643375063747,94,9,0.912621359223301,9,0,ffill_zero_indicator,True,True,True
+0.2,32,0.0002,10,2,3,0.5,252,20,10000,gru,0.01764562879914019,0.01764562879914019,94,9,0.912621359223301,9,0,ffill_zero_indicator,True,True,True
+0.1,32,0.001,10,3,3,0.5,252,20,10000,gru,0.017308895640025974,0.017308895640025974,94,9,0.912621359223301,9,0,ffill_zero_indicator,True,True,True
+0.1,64,0.0002,10,2,3,0.5,378,10,10000,gru,0.01673833621192039,0.01673833621192039,94,9,0.912621359223301,9,0,ffill_zero_indicator,True,True,True
+0.1,32,0.0002,10,1,3,0.5,252,10,10000,gru,0.015170174071891194,0.015170174071891194,94,9,0.912621359223301,9,0,ffill_zero_indicator,True,True,True

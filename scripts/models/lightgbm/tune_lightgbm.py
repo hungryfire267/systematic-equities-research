@@ -16,10 +16,11 @@ LIGHTGBM_DIR = RESULTS_DIR / "lightgbm_model"
 LIGHTGBM_DIR.mkdir(parents=True, exist_ok=True)
 
 class LightGBMTuner: 
-    def __init__(self, n_iter, random_state, feature_matrix_df): 
+    def __init__(self, n_iter, random_state, feature_matrix_df, data_type): 
         self.rng = random.Random(random_state)
         self.n_iter = n_iter
         self.feature_matrix_df = feature_matrix_df
+        self.data_type = data_type
         
         self.target_col = "future_return_5d"
         self.feature_cols = self.feature_matrix_df.columns[2:].drop("future_return_5d")
@@ -27,10 +28,10 @@ class LightGBMTuner:
     def get_param_grids(self): 
         param_grids = { 
             "learning_rate": self.rng.choice([0.01, 0.02, 0.04, 0.08, 0.1]), 
-            "num_leaves": self.rng.choice([31, 63, 127]),
-            "max_depth": self.rng.choice([5, 7, 9, -1]),
-            "n_estimators": self.rng.choice([100, 200, 300, 500]),
-            "min_child_samples": self.rng.choice([10, 20, 50, 100])
+            "num_leaves": int(self.rng.choice([31, 63, 127])),
+            "max_depth": int(self.rng.choice([5, 7, 9, -1])),
+            "n_estimators": int(self.rng.choice([100, 200, 300, 500])),
+            "min_child_samples": int(self.rng.choice([10, 20, 50, 100]))
         }
         
         return param_grids
@@ -40,7 +41,8 @@ class LightGBMTuner:
             lambda x: x["prediction"].corr(
                 x[self.target_col],
                 method="spearman"
-            )
+            ),
+            include_groups = False
         )
 
         return daily_ic.dropna().mean()
@@ -79,11 +81,11 @@ class LightGBMTuner:
         best_params = results_df.iloc[0].drop("mean_ic").to_dict()
         
         results_df.to_csv(
-            LIGHTGBM_DIR / "random_search.csv",
+            LIGHTGBM_DIR / f"random_search_{self.data_type}.csv",
             index=False,
         )
         
-        with open(os.path.join(LIGHTGBM_DIR, "best_params.json"), "w") as f: 
+        with open(os.path.join(LIGHTGBM_DIR, f"best_params_{self.data_type}.json"), "w") as f: 
             json.dump(best_params, f, indent=4)
         
         

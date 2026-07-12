@@ -3,6 +3,7 @@ import numpy as np
 import os 
 import pandas as pd
 from pathlib import Path
+import pickle
 
 from scripts.models.walk_forward import WalkForwardValidator
 
@@ -10,25 +11,12 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 PROCESSED_DIR = BASE_DIR / "data" / "processed" 
 PROCESSED_FEATURE_DIR = PROCESSED_DIR / "features"
 
-LIGHTGBM_MODEL_DIR = BASE_DIR / "results" / "lightgbm_model"
-
 class TopBottom20Selector: 
-    def __init__(self, model_class):
-        with open(os.path.join(LIGHTGBM_MODEL_DIR, "best_params.json"), "r") as f:
-            self.best_params = json.load(f)
-        
-        int_params = [
-            "num_leaves",
-            "max_depth",
-            "n_estimators",
-            "min_child_samples",
-        ]
-
-        for p in int_params:
-            self.best_params[p] = int(self.best_params[p])
-        
+    def __init__(self, model_dir):
         self.feature_matrix = pd.read_parquet(os.path.join(PROCESSED_FEATURE_DIR, "feature_matrix_stock.parquet"))
-        self.model = model_class(params = self.best_params)
+        
+        with open(model_dir, "rb") as file: 
+            self.model = pickle.load(file)
         
     def fit_model(self): 
         wf = WalkForwardValidator(

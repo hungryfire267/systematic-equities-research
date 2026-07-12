@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 
-class WalkForwardLSTMValidator:
+class WalkForwardGRUValidator:
     def __init__(
         self,
         feature_matrix: pd.DataFrame,
@@ -21,6 +21,7 @@ class WalkForwardLSTMValidator:
         missing_strategy: str = "drop",
         allow_short_sequences: bool = False,
         add_listing_age_features: bool = False,
+        precompute_sequences: bool = True,
         verbose: int = 0,
         fit_kwargs: dict[str, Any] | None = None,
         predict_kwargs: dict[str, Any] | None = None,
@@ -50,6 +51,7 @@ class WalkForwardLSTMValidator:
         self.missing_strategy = missing_strategy
         self.allow_short_sequences = allow_short_sequences
         self.add_listing_age_features = add_listing_age_features
+        self.precompute_sequences = precompute_sequences
         self.base_feature_cols = self.feature_matrix.columns[2:].drop(self.target_col)
         self.feature_matrix = self._prepare_feature_matrix(self.feature_matrix)
         self.feature_cols = self.feature_matrix.columns[2:].drop(self.target_col)
@@ -161,7 +163,8 @@ class WalkForwardLSTMValidator:
 
         if not X:
             empty_X = np.empty((0, self.sequence_length, len(feature_cols)), dtype=np.float32)
-            return empty_X, np.empty((0,), dtype=np.float32), pd.DataFrame(meta)
+            meta_cols = ["Date", "Ticker", self.target_col]
+            return empty_X, np.empty((0,), dtype=np.float32), pd.DataFrame(columns=meta_cols)
 
         return (
             np.asarray(X, dtype=np.float32),
@@ -193,7 +196,7 @@ class WalkForwardLSTMValidator:
     ):
         import tensorflow as tf
 
-        from scripts.models.lstm.lstm_model import ListNetLoss
+        from scripts.models.gru.gru_model import ListNetLoss
 
         fit_kwargs = fit_kwargs.copy()
         epochs = fit_kwargs.pop("epochs", 1)
@@ -205,6 +208,8 @@ class WalkForwardLSTMValidator:
         restore_best_weights = fit_kwargs.pop("restore_best_weights", True)
         target_transform = fit_kwargs.pop("listnet_target_transform", "raw")
         target_temperature = fit_kwargs.pop("listnet_temperature", 1.0)
+        max_train_groups = fit_kwargs.pop("listnet_max_train_groups", None)
+        group_stride = fit_kwargs.pop("listnet_group_stride", 1)
 
         if fit_kwargs:
             unexpected = ", ".join(sorted(fit_kwargs))
@@ -213,6 +218,10 @@ class WalkForwardLSTMValidator:
             raise ValueError("listnet_target_transform must be 'raw', 'zscore', or 'rank'")
         if target_temperature <= 0:
             raise ValueError("listnet_temperature must be positive")
+        if max_train_groups is not None and max_train_groups < 1:
+            raise ValueError("listnet_max_train_groups must be positive or None")
+        if group_stride < 1:
+            raise ValueError("listnet_group_stride must be at least 1")
 
         optimizer = optimizer or tf.keras.optimizers.Adam(learning_rate=learning_rate)
         loss_fn = ListNetLoss()
@@ -224,6 +233,10 @@ class WalkForwardLSTMValidator:
             .tolist()
         )
         train_groups = [rows for rows in train_groups if len(rows) > 1]
+        if max_train_groups is not None:
+            train_groups = train_groups[-max_train_groups:]
+        if group_stride > 1:
+            train_groups = train_groups[::group_stride]
 
         best_loss = np.inf
         best_weights = None
@@ -309,6 +322,11 @@ class WalkForwardLSTMValidator:
         dates = self.get_rebalance_dates()
 
         unique_dates = np.sort(self.feature_matrix["Date"].unique())
+        if self.precompute_sequences:
+            X_all, y_all, meta_all = self._make_sequences(self.feature_matrix)
+            meta_dates = meta_all["Date"].to_numpy(dtype="datetime64[ns]")
+        else:
+            X_all = y_all = meta_all = meta_dates = None
 
         predictions = []
         model = None
@@ -326,19 +344,29 @@ class WalkForwardLSTMValidator:
             purge_cutoff_idx = max(0, date_idx - horizon)
             purge_cutoff_date = unique_dates[purge_cutoff_idx]
 
-            train_df = self.feature_matrix[
-                self.feature_matrix["Date"] <= purge_cutoff_date
-            ].copy()
+            if self.precompute_sequences:
+                train_mask = meta_dates <= np.datetime64(purge_cutoff_date)
+                test_mask = meta_dates == np.datetime64(pd.Timestamp(date))
 
-            test_history_df = self.feature_matrix[
-                self.feature_matrix["Date"] <= date
-            ].copy()
+                X_train = X_all[train_mask]
+                y_train = y_all[train_mask]
+                train_meta = meta_all.loc[train_mask].reset_index(drop=True)
+                X_test = X_all[test_mask]
+                test_meta = meta_all.loc[test_mask].reset_index(drop=True)
+            else:
+                train_df = self.feature_matrix[
+                    self.feature_matrix["Date"] <= purge_cutoff_date
+                ].copy()
 
-            X_train, y_train, train_meta = self._make_sequences(train_df)
-            X_test, _, test_meta = self._make_sequences(
-                test_history_df,
-                target_dates={pd.Timestamp(date)},
-            )
+                test_history_df = self.feature_matrix[
+                    self.feature_matrix["Date"] <= date
+                ].copy()
+
+                X_train, y_train, train_meta = self._make_sequences(train_df)
+                X_test, _, test_meta = self._make_sequences(
+                    test_history_df,
+                    target_dates={pd.Timestamp(date)},
+                )
 
             train_too_small = X_train.shape[0] < self.min_train_size
             empty_test = X_test.shape[0] == 0
@@ -355,7 +383,7 @@ class WalkForwardLSTMValidator:
                     if empty_test:
                         reasons.append("empty_test")
                     print(
-                        f"LSTM fold {fold_idx}/{len(dates)} "
+                        f"GRU fold {fold_idx}/{len(dates)} "
                         f"{pd.Timestamp(date).date()}: skipped "
                         f"(train={X_train.shape[0]}, test={X_test.shape[0]}, "
                         f"reason={'+'.join(reasons)})"
@@ -379,7 +407,7 @@ class WalkForwardLSTMValidator:
             if self.verbose:
                 training_style = "fresh" if reset_due else "fine-tune"
                 print(
-                    f"LSTM fold {fold_idx}/{len(dates)} "
+                    f"GRU fold {fold_idx}/{len(dates)} "
                     f"{pd.Timestamp(date).date()}: {training_style} training "
                     f"(train={X_train.shape[0]}, test={X_test.shape[0]})"
                 )
@@ -401,7 +429,7 @@ class WalkForwardLSTMValidator:
         if not predictions:
             if self.verbose:
                 print(
-                    "LSTM walk-forward: no folds trained "
+                    "GRU walk-forward: no folds trained "
                     f"(min_train_size={self.min_train_size}, "
                     f"sequence_length={self.sequence_length}, "
                     f"skipped_folds={self.skipped_fold_count})"
