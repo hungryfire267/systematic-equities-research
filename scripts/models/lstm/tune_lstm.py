@@ -54,6 +54,7 @@ class LSTMTuner:
 
     def get_param_grids(self):
         param_grids = {
+<<<<<<< HEAD
             "dropout_rate": self.rng.choice([0.1, 0.2, 0.3]),
             "hidden_dim_1": self.rng.choice([32, 64, 128]),
             "hidden_dim_2": self.rng.choice([16, 32, 64]),
@@ -64,6 +65,18 @@ class LSTMTuner:
             "listnet_temperature": self.rng.choice([0.5, 1.0, 2.0]),
             "sequence_length": self.rng.choice([5, 10, 20]),
             "min_train_size": self.rng.choice([3000, 5000, 8000]),
+=======
+            "dropout_rate": self.rng.choice([0.1, 0.2]),
+            "hidden_dim_1": self.rng.choice([32, 64]),
+            "hidden_dim_2": self.rng.choice([16, 32]),
+            "learning_rate": self.rng.choice([0.0002, 0.0005, 0.001]),
+            "epochs": 10,
+            "fine_tune_epochs": self.rng.choice([1, 2, 3]),
+            "early_stopping_patience": 3,
+            "listnet_temperature": 0.5,
+            "sequence_length": self.rng.choice([10, 20]),
+            "min_train_size": 10000
+>>>>>>> 516edd4 (Added tune_lstm)
         }
 
         return param_grids
