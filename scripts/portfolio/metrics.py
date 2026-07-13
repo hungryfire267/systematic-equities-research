@@ -2,6 +2,8 @@
 import numpy as np
 import pandas as pd
 
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+
 class GetMetrics: 
     def __init__(self, portfolio_df): 
         self.portfolio_df = portfolio_df
@@ -59,6 +61,55 @@ class GetMetrics:
         }
         
         return backtest_metrics_dict, strategy_returns
+    
+class GetPredictionMetrics: 
+    def __init__(self, portfolio_df): 
+        self.portfolio_df = portfolio_df
+        
+    def get_rmse_mae(self): 
+        preds = self.portfolio_df["prediction"]
+        actuals = self.portfolio_df["future_return_5d"]
+        
+        mae = mean_absolute_error(actuals, preds)
+        rmse = np.sqrt(mean_squared_error(actuals, preds))
+        return mae, rmse
+    
+    def get_ic(self): 
+        daily_ic = self.portfolio_df.groupby("Date").apply(
+            lambda x: x["prediction"].corr(
+                x["future_return_5d"],
+                method="spearman"
+            ), 
+            include_groups = False
+        )
+        
+        mean_ic = daily_ic.dropna().mean()
+        std_ic = daily_ic.dropna().std(ddof=1)
+        
+        icir = mean_ic / std_ic * np.sqrt(52)
+        return mean_ic, icir
+    
+    def get_hit_rate(self): 
+        preds = self.portfolio_df["prediction"]
+        actuals = self.portfolio_df["future_return_5d"]
+        
+        hit_rate = (np.sign(preds) == np.sign(actuals)).mean()
+        return hit_rate
+    
+    def run_data(self): 
+        mean_ic, icir = self.get_ic()
+        hit_rate = self.get_hit_rate()
+        mae, rmse = self.get_rmse_mae()
+        
+        prediction_metrics_dict = {
+            "Mean IC": mean_ic, 
+            "IC IR": icir, 
+            "Annualised Hit Rate": hit_rate, 
+            "Mean Absolute Error": mae, 
+            "Root Mean Squared Error": rmse
+        }
+        
+        return prediction_metrics_dict
         
         
         
