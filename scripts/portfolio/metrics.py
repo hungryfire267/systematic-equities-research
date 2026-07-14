@@ -87,7 +87,7 @@ class GetPredictionMetrics:
         std_ic = daily_ic.dropna().std(ddof=1)
         
         icir = mean_ic / std_ic * np.sqrt(52)
-        return mean_ic, icir
+        return mean_ic, icir, daily_ic
     
     def get_hit_rate(self): 
         preds = self.portfolio_df["prediction"]
@@ -96,20 +96,31 @@ class GetPredictionMetrics:
         hit_rate = (np.sign(preds) == np.sign(actuals)).mean()
         return hit_rate
     
+    def get_hit_results(self): 
+        df = self.portfolio_df.copy()
+        df["hit"] = (
+            np.sign(df["prediction"]) ==
+            np.sign(df["future_return_5d"])
+        )
+
+        return df
+    
     def run_data(self): 
-        mean_ic, icir = self.get_ic()
+        mean_ic, icir, daily_ic = self.get_ic()
         hit_rate = self.get_hit_rate()
         mae, rmse = self.get_rmse_mae()
         
         prediction_metrics_dict = {
-            "Mean IC": mean_ic, 
-            "IC IR": icir, 
-            "Annualised Hit Rate": hit_rate, 
-            "Mean Absolute Error": mae, 
-            "Root Mean Squared Error": rmse
+            "mean_ic": mean_ic, 
+            "annualised_icir": icir, 
+            "hit_rate": hit_rate, 
+            "mae": mae, 
+            "rmse": rmse
         }
         
-        return prediction_metrics_dict
+        hit_results_df = self.get_hit_results()
+        
+        return prediction_metrics_dict, daily_ic, hit_results_df
         
         
         

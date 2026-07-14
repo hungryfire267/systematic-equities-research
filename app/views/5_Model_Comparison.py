@@ -11,6 +11,8 @@ sys.path.append(str(BASE_DIR))
 
 
 from scripts.portfolio.metrics import GetMetrics, GetPredictionMetrics
+from scripts.portfolio.hypothesistest import ModelHypothesisTest
+
 BACKTEST_RESULTS_LIGHTGBM_DIR = BASE_DIR / "results" /  "backtest" / "lightgbm"
 BACKTEST_RESULTS_XGBOOST_DIR = BASE_DIR / "results" /  "backtest" / "xgboost"
 
@@ -71,8 +73,8 @@ final_portfolio_xgboost = pd.read_parquet(os.path.join(BACKTEST_RESULTS_XGBOOST_
 portfolio_stock_metrics_lightgbm_dict, lightgbm_returns = GetMetrics(final_portfolio_lightgbm).run_data()
 portfolio_stock_metrics_xgboost_dict, xgboost_returns = GetMetrics(final_portfolio_xgboost).run_data()
 
-prediction_stock_metrics_lightgbm_dict, lightgbm_ic = GetPredictionMetrics(final_portfolio_lightgbm).run_data()
-prediction_stock_metrics_xgboost_dict, xgboost_ic = GetPredictionMetrics(final_portfolio_xgboost).run_data()
+prediction_stock_metrics_lightgbm_dict, lightgbm_ic, lightgbm_hit_df = GetPredictionMetrics(final_portfolio_lightgbm).run_data()
+prediction_stock_metrics_xgboost_dict, xgboost_ic, xgboost_hit_df = GetPredictionMetrics(final_portfolio_xgboost).run_data()
 
 lightgbm_stock_metrics = {
     "prediction": prediction_stock_metrics_lightgbm_dict, 
@@ -83,6 +85,43 @@ xgboost_stock_metrics = {
     "prediction": prediction_stock_metrics_xgboost_dict,
     "portfolio": portfolio_stock_metrics_xgboost_dict
 }
+
+hit_comparison = (
+    lightgbm_hit_df[
+        ["Date", "Ticker", "hit"]
+    ]
+    .rename(columns={"hit": "lightgbm_hit"})
+    .merge(
+        xgboost_hit_df[
+            ["Date", "Ticker", "hit"]
+        ].rename(columns={"hit": "xgboost_hit"}),
+        on=["Date", "Ticker"],
+        how="inner",
+        validate="one_to_one",
+    )
+    .dropna(subset=["lightgbm_hit", "xgboost_hit"])
+)
+
+hit_contingency_table = pd.crosstab(
+    hit_comparison["lightgbm_hit"],
+    hit_comparison["xgboost_hit"],
+).reindex(
+    index=[True, False],
+    columns=[True, False],
+    fill_value=0,
+)
+
+hit_contingency_table.index = [
+    "LightGBM hit",
+    "LightGBM miss",
+]
+
+hit_contingency_table.columns = [
+    "XGBoost hit",
+    "XGBoost miss",
+]
+
+print(hit_contingency_table)
 
 with stock_tab:
     render_feature_comparison(
@@ -224,9 +263,6 @@ with macro_tab:
         lightgbm_metrics=macro_lightgbm_metrics,
         xgboost_metrics=macro_xgboost_metrics
     )
-
-
-
 
 #### Get Data for each model
 
