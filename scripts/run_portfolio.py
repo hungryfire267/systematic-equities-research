@@ -81,10 +81,26 @@ class GetPortfolioReturns:
         self.save_portfolio(final_datasets_df_dict)
         
 if __name__ == "__main__": 
-    lgbm_dir = os.path.join(LIGHTGBM_MODEL_DIR, "lightgbm_model_stock.pkl")
-    xgboost_dir = os.path.join(XGBOOST_MODEL_DIR, "xgboost_model_stock.pkl")
+    lgbm_stock_dir = os.path.join(LIGHTGBM_MODEL_DIR, "lightgbm_model_stock.pkl")
+    lgbm_market_dir = os.path.join(LIGHTGBM_MODEL_DIR, "lightgbm_model_market.pkl")
+    lgbm_macro_market_dir = os.path.join(LIGHTGBM_MODEL_DIR, "lightgbm_model_macro_market.pkl")
+    
+    xgboost_stock_dir = os.path.join(XGBOOST_MODEL_DIR, "xgboost_model_stock.pkl")
+    xgboost_market_dir = os.path.join(XGBOOST_MODEL_DIR, "xgboost_model_market.pkl")
+    xgboost_macro_market_dir = os.path.join(XGBOOST_MODEL_DIR, "xgboost_model_macro_market.pkl")
     
     print("Running LightGBM Portfolio...")
-    lgbm_portfolio = GetPortfolioReturns(lgbm_dir, BACKTEST_LIGHTGBM_DIR, "stock").run_data() 
+    print("Running Stock...")
+    lgbm_portfolio_stock = GetPortfolioReturns(lgbm_stock_dir, BACKTEST_LIGHTGBM_DIR, "stock").run_data() 
+    print("Running Stock + Market...")
+    lgbm_portfolio_market = GetPortfolioReturns(lgbm_market_dir, BACKTEST_LIGHTGBM_DIR, "market").run_data()
+    print("Running Stock + Market + Macro...")
+    lgbm_portfolio_macro_market = GetPortfolioReturns(lgbm_macro_market_dir, BACKTEST_LIGHTGBM_DIR, "macro_market").run_data()
+    
     print("Running XGBoost Portfolio...")
-    xgboost_portfolio = GetPortfolioReturns(xgboost_dir, BACKTEST_XGBOOST_DIR, "stock").run_data()
+    print("Running Stock...")
+    xgboost_portfolio_stock = GetPortfolioReturns(xgboost_stock_dir, BACKTEST_XGBOOST_DIR, "stock").run_data()
+    print("Running Stock + Market...")
+    xgboost_portfolio_market = GetPortfolioReturns(xgboost_market_dir, BACKTEST_XGBOOST_DIR, "market").run_data()
+    print("Running Stock + Market + Macro...")
+    xgboost_portfolio_macro_market = GetPortfolioReturns(xgboost_macro_market_dir, BACKTEST_XGBOOST_DIR, "macro_market").run_data()

@@ -5,6 +5,7 @@ import streamlit as st
 import sys
 
 from components.feature_comparison import render_feature_comparison, render_hypothesis_card
+from components.utils import get_hit_contingency_table
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(BASE_DIR))
@@ -67,61 +68,72 @@ stock_tab, market_tab, macro_tab = st.tabs(
     ]
 )
 
-final_portfolio_lightgbm = pd.read_parquet(os.path.join(BACKTEST_RESULTS_LIGHTGBM_DIR, "final_portfolio_stock.parquet"))
-final_portfolio_xgboost = pd.read_parquet(os.path.join(BACKTEST_RESULTS_XGBOOST_DIR, "final_portfolio_stock.parquet"))
-
-portfolio_stock_metrics_lightgbm_dict, lightgbm_returns = GetMetrics(final_portfolio_lightgbm).run_data()
-portfolio_stock_metrics_xgboost_dict, xgboost_returns = GetMetrics(final_portfolio_xgboost).run_data()
-
-prediction_stock_metrics_lightgbm_dict, lightgbm_ic, lightgbm_hit_df = GetPredictionMetrics(final_portfolio_lightgbm).run_data()
-prediction_stock_metrics_xgboost_dict, xgboost_ic, xgboost_hit_df = GetPredictionMetrics(final_portfolio_xgboost).run_data()
-
-lightgbm_stock_metrics = {
-    "prediction": prediction_stock_metrics_lightgbm_dict, 
-    "portfolio": portfolio_stock_metrics_lightgbm_dict
+model_paths = {
+    "lightgbm": BACKTEST_RESULTS_LIGHTGBM_DIR, 
+    "xgboost": BACKTEST_RESULTS_XGBOOST_DIR
 }
 
-xgboost_stock_metrics = {
-    "prediction": prediction_stock_metrics_xgboost_dict,
-    "portfolio": portfolio_stock_metrics_xgboost_dict
+feature_sets = {
+    "stock": "final_portfolio_stock.parquet",
+    "market": "final_portfolio_market.parquet",
+    "macro_market": "final_portfolio_macro_market.parquet",
 }
 
-hit_comparison = (
-    lightgbm_hit_df[
-        ["Date", "Ticker", "hit"]
-    ]
-    .rename(columns={"hit": "lightgbm_hit"})
-    .merge(
-        xgboost_hit_df[
-            ["Date", "Ticker", "hit"]
-        ].rename(columns={"hit": "xgboost_hit"}),
-        on=["Date", "Ticker"],
-        how="inner",
-        validate="one_to_one",
+results = {}
+for model_name, model_dir in model_paths.items(): 
+    results[model_name] = {}
+    for feature_name, filename in feature_sets.items():
+        portfolio = pd.read_parquet(os.path.join(model_dir, filename))
+        portfolio_metrics, returns = GetMetrics(portfolio).run_data()
+        prediction_metrics, ic, hit = GetPredictionMetrics(portfolio).run_data()
+        
+        results[model_name][feature_name] = {
+            "portfolio_data": portfolio,
+            "metrics": {
+                "prediction": prediction_metrics,
+                "portfolio": portfolio_metrics
+            },
+            "returns": returns,
+            "ic": ic, 
+            "hit": hit
+        }
+
+
+hit_contingency_tables = {}
+for feature_name in feature_sets:
+    lightgbm_hit = results["lightgbm"][feature_name]["hit"]
+    xgboost_hit = results["xgboost"][feature_name]["hit"]
+
+    hit_contingency_tables[feature_name] = (
+        get_hit_contingency_table(lightgbm_hit, xgboost_hit).to_numpy()
     )
-    .dropna(subset=["lightgbm_hit", "xgboost_hit"])
+
+pipeline_stock = ModelHypothesisTest(
+    alpha=0.05,
+    xgboost_ic=results["xgboost"]["stock"]["ic"],
+    lgbm_ic=results["lightgbm"]["stock"]["ic"], 
+    hit_contingency_table=hit_contingency_tables["stock"], 
+    lightgbm_returns=results["lightgbm"]["stock"]["returns"]["portfolio_return"], 
+    xgboost_returns=results["xgboost"]["stock"]["returns"]["portfolio_return"]
 )
 
-hit_contingency_table = pd.crosstab(
-    hit_comparison["lightgbm_hit"],
-    hit_comparison["xgboost_hit"],
-).reindex(
-    index=[True, False],
-    columns=[True, False],
-    fill_value=0,
+pipeline_market = ModelHypothesisTest(
+    alpha=0.05,
+    xgboost_ic=results["xgboost"]["market"]["ic"],
+    lgbm_ic=results["lightgbm"]["market"]["ic"], 
+    hit_contingency_table=hit_contingency_tables["market"], 
+    lightgbm_returns=results["lightgbm"]["market"]["returns"]["portfolio_return"], 
+    xgboost_returns=results["xgboost"]["market"]["returns"]["portfolio_return"]
 )
 
-hit_contingency_table.index = [
-    "LightGBM hit",
-    "LightGBM miss",
-]
-
-hit_contingency_table.columns = [
-    "XGBoost hit",
-    "XGBoost miss",
-]
-
-print(hit_contingency_table)
+pipeline_macro_market = ModelHypothesisTest(
+    alpha=0.05,
+    xgboost_ic=results["xgboost"]["macro_market"]["ic"],
+    lgbm_ic=results["lightgbm"]["macro_market"]["ic"], 
+    hit_contingency_table=hit_contingency_tables["macro_market"], 
+    lightgbm_returns=results["lightgbm"]["macro_market"]["returns"]["portfolio_return"], 
+    xgboost_returns=results["xgboost"]["macro_market"]["returns"]["portfolio_return"]
+)
 
 with stock_tab:
     render_feature_comparison(
@@ -129,12 +141,12 @@ with stock_tab:
         feature_description=(
             "Price, volume, momentum and volatility predictors."
         ),
-        lightgbm_results=lightgbm_stock_metrics,
-        xgboost_results=xgboost_stock_metrics,
-        lightgbm_ic=lightgbm_ic,
-        xgboost_ic=xgboost_ic,
-        lightgbm_returns=lightgbm_returns,
-        xgboost_returns=xgboost_returns
+        lightgbm_results=results["lightgbm"]["stock"]["metrics"],
+        xgboost_results=results["xgboost"]["stock"]["metrics"],
+        lightgbm_ic=results["lightgbm"]["stock"]["ic"],
+        xgboost_ic=results["xgboost"]["stock"]["ic"],
+        lightgbm_returns=results["lightgbm"]["stock"]["returns"],
+        xgboost_returns=results["xgboost"]["stock"]["returns"]
     )
 
     st.markdown(
@@ -182,6 +194,27 @@ with stock_tab:
         accent_colour="#2563EB",
         background_colour="#EFF6FF"
     )
+    
+    t_stat, p_value, statement = pipeline_stock.mean_weekly_ic()
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="t-statistic",
+            value=f"{t_stat:.4f}"
+        )
+
+    with col2:
+        st.metric(
+            label="p-value",
+            value=f"{p_value:.4f}"
+        )
+
+    if p_value < pipeline_stock.alpha:
+        st.success(statement)
+    else:
+        st.info(statement)
 
     render_hypothesis_card(
         number=2,
@@ -200,6 +233,27 @@ with stock_tab:
         accent_colour="#7C3AED",
         background_colour="#F5F3FF"
     )
+    
+    chi_squared_stat, p_value, statement = pipeline_stock.mcnemar_test()
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="t-statistic",
+            value=f"{chi_squared_stat:.4f}"
+        )
+
+    with col2:
+        st.metric(
+            label="p-value",
+            value=f"{p_value:.4f}"
+        )
+
+    if p_value < pipeline_stock.alpha:
+        st.success(statement)
+    else:
+        st.info(statement)
 
     render_hypothesis_card(
         number=3,
@@ -218,6 +272,27 @@ with stock_tab:
         accent_colour="#10B981",
         background_colour="#F0FDF4"
     )
+    
+    t_stat, p_value, statement = pipeline_stock.portfolio_returns_test()
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="t-statistic",
+            value=f"{t_stat:.4f}"
+        )
+
+    with col2:
+        st.metric(
+            label="p-value",
+            value=f"{p_value:.4f}"
+        )
+
+    if p_value < pipeline_stock.alpha:
+        st.success(statement)
+    else:
+        st.info(statement)
 
     render_hypothesis_card(
         number=4,
@@ -239,6 +314,9 @@ with stock_tab:
         accent_colour="#EA580C",
         background_colour="#FFF7ED"
     )
+    
+    results_dict = pipeline_stock.sharpe_ratio_test()
+    print(results_dict)
 
 with market_tab:
     render_feature_comparison(
@@ -247,9 +325,182 @@ with market_tab:
             "Stock-specific variables combined with ASX 200, "
             "sector and market-wide information."
         ),
-        lightgbm_metrics=market_lightgbm_metrics,
-        xgboost_metrics=market_xgboost_metrics
+        lightgbm_results=results["lightgbm"]["market"]["metrics"],
+        xgboost_results=results["xgboost"]["market"]["metrics"],
+        lightgbm_ic=results["lightgbm"]["market"]["ic"],
+        xgboost_ic=results["xgboost"]["market"]["ic"],
+        lightgbm_returns=results["lightgbm"]["market"]["returns"],
+        xgboost_returns=results["xgboost"]["market"]["returns"]
     )
+    
+    st.markdown(
+        """
+        <div style="margin-bottom:1.5rem;">
+            <h1 style="
+                font-size:2.4rem;
+                font-weight:800;
+                color:#0F172A;
+                margin-bottom:0.25rem;
+            ">
+                Hypothesis Testing
+            </h1>
+
+            <p style="
+                font-size:1.02rem;
+                color:#64748B;
+                line-height:1.6;
+                margin-top:0;
+                margin-bottom:0;
+            ">
+                Statistical tests assessing whether differences in predictive quality,
+                portfolio performance and feature-set value are greater than expected
+                from random variation.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    render_hypothesis_card(
+        number=1,
+        question="Does XGBoost produce a higher mean weekly IC than LightGBM?",
+        null_hypothesis=(
+            r"H_0:\ \mu_{IC,\mathrm{XGB}}"
+            r"\leq"
+            r"\mu_{IC,\mathrm{LGBM}}"
+        ),
+        alternative_hypothesis=(
+            r"H_1:\ \mu_{IC,\mathrm{XGB}}"
+            r">"
+            r"\mu_{IC,\mathrm{LGBM}}"
+        ),
+        test_name="One-sided paired t-test on aligned weekly IC observations.",
+        accent_colour="#2563EB",
+        background_colour="#EFF6FF"
+    )
+    
+    t_stat, p_value, statement = pipeline_market.mean_weekly_ic()
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="t-statistic",
+            value=f"{t_stat:.4f}"
+        )
+
+    with col2:
+        st.metric(
+            label="p-value",
+            value=f"{p_value:.4f}"
+        )
+
+    if p_value < pipeline_market.alpha:
+        st.success(statement)
+    else:
+        st.info(statement)
+
+    render_hypothesis_card(
+        number=2,
+        question="Do LightGBM and XGBoost have different directional hit rates?",
+        null_hypothesis=(
+            r"H_0:\ p_{\mathrm{hit,LGBM}}"
+            r"="
+            r"p_{\mathrm{hit,XGB}}"
+        ),
+        alternative_hypothesis=(
+            r"H_1:\ p_{\mathrm{hit,LGBM}}"
+            r"\neq"
+            r"p_{\mathrm{hit,XGB}}"
+        ),
+        test_name="McNemar test on paired correct and incorrect predictions.",
+        accent_colour="#7C3AED",
+        background_colour="#F5F3FF"
+    )
+    
+    chi_squared_stat, p_value, statement = pipeline_market.mcnemar_test()
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="t-statistic",
+            value=f"{chi_squared_stat:.4f}"
+        )
+
+    with col2:
+        st.metric(
+            label="p-value",
+            value=f"{p_value:.4f}"
+        )
+
+    if p_value < pipeline_market.alpha:
+        st.success(statement)
+    else:
+        st.info(statement)
+
+    render_hypothesis_card(
+        number=3,
+        question="Do LightGBM and XGBoost produce different mean weekly portfolio returns?",
+        null_hypothesis=(
+            r"H_0:\ \mu_{r,\mathrm{LGBM}}"
+            r"="
+            r"\mu_{r,\mathrm{XGB}}"
+        ),
+        alternative_hypothesis=(
+            r"H_1:\ \mu_{r,\mathrm{LGBM}}"
+            r"\neq"
+            r"\mu_{r,\mathrm{XGB}}"
+        ),
+        test_name="Two-sided paired t-test on aligned weekly portfolio returns.",
+        accent_colour="#10B981",
+        background_colour="#F0FDF4"
+    )
+    
+    t_stat, p_value, statement = pipeline_market.portfolio_returns_test()
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="t-statistic",
+            value=f"{t_stat:.4f}"
+        )
+
+    with col2:
+        st.metric(
+            label="p-value",
+            value=f"{p_value:.4f}"
+        )
+
+    if p_value < pipeline_market.alpha:
+        st.success(statement)
+    else:
+        st.info(statement)
+
+    render_hypothesis_card(
+        number=4,
+        question="Does LightGBM achieve a higher Sharpe ratio than XGBoost?",
+        null_hypothesis=(
+            r"H_0:\ SR_{\mathrm{LGBM}}"
+            r"\leq"
+            r"SR_{\mathrm{XGB}}"
+        ),
+        alternative_hypothesis=(
+            r"H_1:\ SR_{\mathrm{LGBM}}"
+            r">"
+            r"SR_{\mathrm{XGB}}"
+        ),
+        test_name=(
+            "One-sided Sharpe-ratio difference test using the "
+            "Jobson–Korkie test with Memmel correction."
+        ),
+        accent_colour="#EA580C",
+        background_colour="#FFF7ED"
+    )
+    
+    results_dict = pipeline_market.sharpe_ratio_test()
+    print(results_dict)
     
 
 
@@ -260,41 +511,184 @@ with macro_tab:
             "Stock and market information combined with rates, "
             "inflation, exchange rates and other macroeconomic variables."
         ),
-        lightgbm_metrics=macro_lightgbm_metrics,
-        xgboost_metrics=macro_xgboost_metrics
+        lightgbm_results=results["lightgbm"]["macro_market"]["metrics"],
+        xgboost_results=results["xgboost"]["macro_market"]["metrics"],
+        lightgbm_ic=results["lightgbm"]["macro_market"]["ic"],
+        xgboost_ic=results["xgboost"]["macro_market"]["ic"],
+        lightgbm_returns=results["lightgbm"]["macro_market"]["returns"],
+        xgboost_returns=results["xgboost"]["macro_market"]["returns"]
     )
+    
+    st.markdown(
+        """
+        <div style="margin-bottom:1.5rem;">
+            <h1 style="
+                font-size:2.4rem;
+                font-weight:800;
+                color:#0F172A;
+                margin-bottom:0.25rem;
+            ">
+                Hypothesis Testing
+            </h1>
 
-#### Get Data for each model
+            <p style="
+                font-size:1.02rem;
+                color:#64748B;
+                line-height:1.6;
+                margin-top:0;
+                margin-bottom:0;
+            ">
+                Statistical tests assessing whether differences in predictive quality,
+                portfolio performance and feature-set value are greater than expected
+                from random variation.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    render_hypothesis_card(
+        number=1,
+        question="Does XGBoost produce a higher mean weekly IC than LightGBM?",
+        null_hypothesis=(
+            r"H_0:\ \mu_{IC,\mathrm{XGB}}"
+            r"\leq"
+            r"\mu_{IC,\mathrm{LGBM}}"
+        ),
+        alternative_hypothesis=(
+            r"H_1:\ \mu_{IC,\mathrm{XGB}}"
+            r">"
+            r"\mu_{IC,\mathrm{LGBM}}"
+        ),
+        test_name="One-sided paired t-test on aligned weekly IC observations.",
+        accent_colour="#2563EB",
+        background_colour="#EFF6FF"
+    )
+    
+    t_stat, p_value, statement = pipeline_macro_market.mean_weekly_ic()
+    
+    col1, col2 = st.columns(2)
 
-final_portfolio_lightgbm = pd.read_parquet(os.path.join(BACKTEST_RESULTS_LIGHTGBM_DIR, "final_portfolio_stock.parquet"))
-final_portfolio_xgboost = pd.read_parquet(os.path.join(BACKTEST_RESULTS_XGBOOST_DIR, "final_portfolio_stock.parquet"))
+    with col1:
+        st.metric(
+            label="t-statistic",
+            value=f"{t_stat:.4f}"
+        )
 
-test_preds_lightgbm = pd.read_parquet(os.path.join(BACKTEST_RESULTS_LIGHTGBM_DIR, "test_preds_stock.parquet"))
+    with col2:
+        st.metric(
+            label="p-value",
+            value=f"{p_value:.4f}"
+        )
+
+    if p_value < pipeline_macro_market.alpha:
+        st.success(statement)
+    else:
+        st.info(statement)
+
+    render_hypothesis_card(
+        number=2,
+        question="Do LightGBM and XGBoost have different directional hit rates?",
+        null_hypothesis=(
+            r"H_0:\ p_{\mathrm{hit,LGBM}}"
+            r"="
+            r"p_{\mathrm{hit,XGB}}"
+        ),
+        alternative_hypothesis=(
+            r"H_1:\ p_{\mathrm{hit,LGBM}}"
+            r"\neq"
+            r"p_{\mathrm{hit,XGB}}"
+        ),
+        test_name="McNemar test on paired correct and incorrect predictions.",
+        accent_colour="#7C3AED",
+        background_colour="#F5F3FF"
+    )
+    
+    chi_squared_stat, p_value, statement = pipeline_macro_market.mcnemar_test()
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="t-statistic",
+            value=f"{chi_squared_stat:.4f}"
+        )
+
+    with col2:
+        st.metric(
+            label="p-value",
+            value=f"{p_value:.4f}"
+        )
+
+    if p_value < pipeline_macro_market.alpha:
+        st.success(statement)
+    else:
+        st.info(statement)
+
+    render_hypothesis_card(
+        number=3,
+        question="Do LightGBM and XGBoost produce different mean weekly portfolio returns?",
+        null_hypothesis=(
+            r"H_0:\ \mu_{r,\mathrm{LGBM}}"
+            r"="
+            r"\mu_{r,\mathrm{XGB}}"
+        ),
+        alternative_hypothesis=(
+            r"H_1:\ \mu_{r,\mathrm{LGBM}}"
+            r"\neq"
+            r"\mu_{r,\mathrm{XGB}}"
+        ),
+        test_name="Two-sided paired t-test on aligned weekly portfolio returns.",
+        accent_colour="#10B981",
+        background_colour="#F0FDF4"
+    )
+    
+    t_stat, p_value, statement = pipeline_macro_market.portfolio_returns_test()
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="t-statistic",
+            value=f"{t_stat:.4f}"
+        )
+
+    with col2:
+        st.metric(
+            label="p-value",
+            value=f"{p_value:.4f}"
+        )
+
+    if p_value < pipeline_macro_market.alpha:
+        st.success(statement)
+    else:
+        st.info(statement)
+
+    render_hypothesis_card(
+        number=4,
+        question="Does LightGBM achieve a higher Sharpe ratio than XGBoost?",
+        null_hypothesis=(
+            r"H_0:\ SR_{\mathrm{LGBM}}"
+            r"\leq"
+            r"SR_{\mathrm{XGB}}"
+        ),
+        alternative_hypothesis=(
+            r"H_1:\ SR_{\mathrm{LGBM}}"
+            r">"
+            r"SR_{\mathrm{XGB}}"
+        ),
+        test_name=(
+            "One-sided Sharpe-ratio difference test using the "
+            "Jobson–Korkie test with Memmel correction."
+        ),
+        accent_colour="#EA580C",
+        background_colour="#FFF7ED"
+    )
+    
+    results_dict = pipeline_macro_market.sharpe_ratio_test()
+    print(results_dict)
 
 
 
 
-
-metrics_lightgbm, _ = GetMetrics(final_portfolio_lightgbm).run_data()
-metrics_xgboost, _ = GetMetrics(final_portfolio_xgboost).run_data()
-
-
-prediction_metrics_lightgbm_dict = GetPredictionMetrics(final_portfolio_lightgbm).run_data()
-prediction_metrics_xgboost_dict = GetPredictionMetrics(final_portfolio_xgboost).run_data()
-
-prediction_metrics_df = pd.DataFrame({
-    "Metric": list(prediction_metrics_lightgbm_dict.keys()),
-    "LightGBM": list(prediction_metrics_lightgbm_dict.values()),
-    "XGBoost": list(prediction_metrics_xgboost_dict.values())
-})
-
-
-st.table(prediction_metrics_df)
-st.table(final_portfolio_lightgbm.head(10))
-st.table(final_portfolio_xgboost.head(10))
-
-
-
-st.write(metrics_lightgbm)
-st.write(metrics_xgboost)
 
