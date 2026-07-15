@@ -54,9 +54,16 @@ def render_feature_comparison(
 
     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-    bottom_left, bottom_right = st.columns(2)
+        
+def render_performance_comparison(
+    lightgbm_results: dict, 
+    xgboost_results: dict, 
+    lightgbm_returns: pd.DataFrame,
+    xgboost_returns: pd.DataFrame
+): 
+    top_left, top_right = st.columns(2)
 
-    with bottom_left:
+    with top_left:
         st.plotly_chart(
             create_equity_curve(
                 lightgbm_returns,
@@ -65,7 +72,7 @@ def render_feature_comparison(
             width="stretch"
         )
 
-    with bottom_right:
+    with top_right:
         st.plotly_chart(
             create_drawdown_curve(
                 lightgbm_returns,
@@ -73,6 +80,7 @@ def render_feature_comparison(
             ),
             width="stretch"
         )
+    
 
 
 def create_prediction_metric_chart(
@@ -472,6 +480,103 @@ def create_drawdown_curve(
 
     return fig
 
+def render_forecast_error_section(lightgbm_data: dict, xgboost_data: dict) -> None:
+    lgbm_pred = lightgbm_data["metrics"]["prediction"]
+    xgb_pred = xgboost_data["metrics"]["prediction"]
+
+    table_col, takeaway_col = st.columns([1, 1.35])
+
+    with table_col:
+        mae_winner = (
+            "LightGBM"
+            if lgbm_pred["mae"] < xgb_pred["mae"]
+            else "XGBoost"
+        )
+
+        rmse_winner = (
+            "LightGBM"
+            if lgbm_pred["rmse"] < xgb_pred["rmse"]
+            else "XGBoost"
+        )
+
+        def badge(model: str) -> str:
+            if model == "LightGBM":
+                return (
+                    '<span style="background:#DCFCE7;color:#059669;'
+                    'padding:0.18rem 0.55rem;border-radius:999px;'
+                    'font-size:0.72rem;font-weight:700;">LightGBM</span>'
+                )
+
+            return (
+                '<span style="background:#DBEAFE;color:#2563EB;'
+                'padding:0.18rem 0.55rem;border-radius:999px;'
+                'font-size:0.72rem;font-weight:700;">XGBoost</span>'
+            )
+
+        table_html = (
+            '<div style="border:1px solid #E2E8F0;border-radius:10px;'
+            'overflow:hidden;background:#FFFFFF;">'
+            '<div style="padding:0.65rem 0.8rem;font-size:0.86rem;'
+            'font-weight:750;color:#0F172A;">'
+            'Forecast Error <span style="color:#64748B;">'
+            '(Lower is Better)</span></div>'
+            '<table style="width:100%;border-collapse:collapse;'
+            'font-size:0.78rem;">'
+            '<thead><tr style="background:#F8FAFC;">'
+            '<th style="padding:0.5rem;text-align:left;">Metric</th>'
+            '<th style="padding:0.5rem;text-align:center;">LightGBM</th>'
+            '<th style="padding:0.5rem;text-align:center;">XGBoost</th>'
+            '<th style="padding:0.5rem;text-align:center;">Better</th>'
+            '</tr></thead>'
+            '<tbody>'
+            '<tr>'
+            '<td style="padding:0.5rem;border-top:1px solid #E2E8F0;">MAE</td>'
+            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
+            f'{lgbm_pred["mae"]:.4f}</td>'
+            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
+            f'{xgb_pred["mae"]:.4f}</td>'
+            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
+            f'{badge(mae_winner)}</td>'
+            '</tr>'
+            '<tr>'
+            '<td style="padding:0.5rem;border-top:1px solid #E2E8F0;">RMSE</td>'
+            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
+            f'{lgbm_pred["rmse"]:.4f}</td>'
+            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
+            f'{xgb_pred["rmse"]:.4f}</td>'
+            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
+            f'{badge(rmse_winner)}</td>'
+            '</tr>'
+            '</tbody></table></div>'
+        )
+
+        st.markdown(table_html, unsafe_allow_html=True)
+
+    with takeaway_col:
+        if mae_winner == rmse_winner:
+            takeaway = (
+                f"{mae_winner} delivers lower MAE and RMSE, indicating "
+                "stronger forecast accuracy across both error measures."
+            )
+        else:
+            takeaway = (
+                f"{mae_winner} records the lower MAE, while "
+                f"{rmse_winner} records the lower RMSE."
+            )
+
+        takeaway_html = (
+            '<div style="border:1px solid #BFDBFE;border-radius:10px;'
+            'background:linear-gradient(135deg,#F8FBFF,#EFF6FF);'
+            'padding:0.9rem 1rem;min-height:118px;">'
+            '<div style="font-size:0.86rem;font-weight:750;'
+            'color:#2563EB;margin-bottom:0.45rem;">'
+            '☆ Key Takeaway</div>'
+            f'<div style="font-size:0.8rem;line-height:1.5;color:#334155;">'
+            f'{takeaway}</div>'
+            '</div>'
+        )
+
+        st.markdown(takeaway_html, unsafe_allow_html=True)
 
 def render_hypothesis_card(
     number: int,
@@ -594,4 +699,5 @@ def render_hypothesis_card(
         ),
         unsafe_allow_html=True
     )
+    
     
