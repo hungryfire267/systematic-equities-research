@@ -33,6 +33,12 @@ companies_paths_dict = {
     "returns": os.path.join(COMPANIES_DIR, "returns.parquet")
 }
 
+data_parquet_dict = {
+    "stock": "feature_matrix_stock.parquet",
+    "market": "feature_matrix_market.parquet", 
+    "macro_market": "feature_matrix_macro_market.parquet"
+}
+
 
 class GetPortfolioReturns: 
     def __init__(self, model_dir, backtest_results_dir, data_type): 
@@ -42,7 +48,7 @@ class GetPortfolioReturns:
         self.returns_df = pd.read_parquet(companies_paths_dict["returns"])
     
     def run_portfolio(self):
-        test_preds, test_preds_rank, topbottom20 = TopBottom20Selector(self.model_dir).run_data()
+        test_preds, test_preds_rank, topbottom20 = TopBottom20Selector(self.model_dir, data_parquet_dict[self.data_type]).run_data()
         portfolio_df = MeanVarianceOptimiser(topbottom20, self.returns_df).run_data()
         final_portfolio_df = portfolio_df.merge(
             topbottom20,

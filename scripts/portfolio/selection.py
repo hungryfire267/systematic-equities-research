@@ -12,8 +12,8 @@ PROCESSED_DIR = BASE_DIR / "data" / "processed"
 PROCESSED_FEATURE_DIR = PROCESSED_DIR / "features"
 
 class TopBottom20Selector: 
-    def __init__(self, model_dir):
-        self.feature_matrix = pd.read_parquet(os.path.join(PROCESSED_FEATURE_DIR, "feature_matrix_stock.parquet"))
+    def __init__(self, model_dir, data_file):
+        self.feature_matrix = pd.read_parquet(os.path.join(PROCESSED_FEATURE_DIR, data_file))
         
         with open(model_dir, "rb") as file: 
             self.model = pickle.load(file)

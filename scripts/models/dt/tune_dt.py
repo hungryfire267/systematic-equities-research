@@ -27,10 +27,9 @@ class DTTuner:
         
     def get_param_grids(self): 
         param_grids = {
-            "max_depth": self.rng.choice([2, 3, 4, 5, 6]),
+            "max_depth": self.rng.choice([2, 3, 4]),
             "min_samples_split": self.rng.choice([20, 50, 100]),
             "min_samples_leaf": self.rng.choice([10, 20, 50]),
-            "max_features": self.rng.choice([None, 0.5, 0.8])
         }
         
         return param_grids

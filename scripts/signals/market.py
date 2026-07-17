@@ -8,6 +8,8 @@ from scipy.stats import rankdata
 BASE_DIR = Path(__file__).resolve().parents[2]
 ASX_DIR = BASE_DIR / "data" / "raw" / "asx"
 
+from scripts.signals.beta import BetaFeatures
+from scripts.signals.utils import cross_sectional_ranking, date_parser
 
 asx_paths_dict = { 
     "asx_index": os.path.join(ASX_DIR, "asx_index.parquet"),
@@ -20,26 +22,21 @@ class MarketSignals:
         self.asx_index_df["Date"] = pd.to_datetime(self.asx_index_df["Date"])
         
         self.paths_dict = paths_dict
+        
+        self.beta_63_df = BetaFeatures([]).get_market_rolling_beta_vol(63)[0]
     
-    def get_market_return(self): 
+    def get_beta_market_return(self): 
         market_return = self.asx_index_df.copy()
         market_return["market_return_1d"] = self.asx_index_df["^AXJO"].pct_change(1)
         market_return["market_return_5d"] = self.asx_index_df["^AXJO"].pct_change(5)
         market_return["market_return_21d"] = self.asx_index_df["^AXJO"].pct_change(21)
         market_return = market_return.drop(columns=["^AXJO"])
-        return market_return
-    
-    def get_market_momentum(self): 
-        market_momentum_df = self.asx_index_df.copy() 
-        market_momentum_df["momentum_63_21"] = (
-            market_momentum_df["^AXJO"].shift(21) / market_momentum_df["^AXJO"].shift(63) - 1
-        )
-        market_momentum_df["momentum_252_21"] = (
-            market_momentum_df["^AXJO"].shift(21) / market_momentum_df["^AXJO"].shift(252) - 1
-        )
-        market_momentum_df = market_momentum_df.drop(columns = ["^AXJO"])
         
-        return market_momentum_df
+        market_return = date_parser(market_return)
+        market_return_5d = market_return["market_return_5d"]
+        beta_x_market_return_5d = cross_sectional_ranking(self.beta_63_df.multiply(market_return_5d, axis=0), True)
+        return market_return, beta_x_market_return_5d
+    
     
     def get_rebalance_dates(self, dates: pd.Series, rebalance_date: int): 
         weekdays = dates.dt.weekday
@@ -123,45 +120,50 @@ class MarketSignals:
     def get_market_volatility(self, market_return_df: pd.DataFrame): 
         market_volatility_df = market_return_df.copy()
         market_volatility_df["market_volatility_21d"] = market_volatility_df["market_return_1d"].rolling(21).std()
-        market_volatility_df["market_volatility_63d"] = market_volatility_df["market_return_1d"].rolling(63).std()
         
         ### GARCH Implementation 
         market_log_returns = self.asx_index_df.copy() 
         market_log_returns["Date"] = pd.to_datetime(market_log_returns["Date"])
         market_log_returns["log_market_return_1d"] = np.log(self.asx_index_df["^AXJO"]).diff()
+        
+        # print(market_log_returns)
         feature_df = self.calculate_garch_volatility(market_log_returns)
-        market_volatility_df["raw_garch_vol"] = feature_df["raw_garch_vol"].copy()
+        # market_volatility_df["raw_garch_vol"] = feature_df["raw_garch_vol"].copy()
         
         market_volatility_df = market_volatility_df.drop(columns = ["market_return_1d", "market_return_5d", "market_return_21d"])
-        return market_volatility_df
+        
+        market_volatility_21d = market_volatility_df["market_volatility_21d"]
+        beta_x_market_volatility_21d = cross_sectional_ranking(self.beta_63_df.multiply(market_volatility_21d, axis=0), True)
+        return beta_x_market_volatility_21d
     
-    def get_market_drawdown(self, drawdown_windows): 
+    def get_beta_market_drawdown(self, drawdown_window): 
         market_drawdown_df = self.asx_index_df.copy() 
         market_drawdown_df["Date"] = pd.to_datetime(market_drawdown_df["Date"])
         
-        for window in drawdown_windows: 
-            market_drawdown_df[f"market_drawdown_{window}d"] = (
-                market_drawdown_df["^AXJO"] / market_drawdown_df["^AXJO"].rolling(window).max()
-            ) - 1
+        market_drawdown_df[f"market_drawdown_{drawdown_window}d"] = (
+            market_drawdown_df["^AXJO"] / market_drawdown_df["^AXJO"].rolling(drawdown_window).max()
+        ) - 1
         
         market_drawdown_df = market_drawdown_df.drop(columns=["^AXJO"])
-    
-        return market_drawdown_df
+        
+        market_drawdown = date_parser(market_drawdown_df)["market_drawdown_21d"]
+        beta_x_market_drawdown_21d = cross_sectional_ranking(self.beta_63_df.multiply(market_drawdown, axis=0), True)    
+        return beta_x_market_drawdown_21d
         
     def run_data(self): 
-        market_return_df = self.get_market_return()
-        market_momentum_df = self.get_market_momentum()
-        market_volatility_df = self.get_market_volatility(market_return_df)
-        market_drawdown_df = self.get_market_drawdown([21, 63, 252])
+        market_return_df, beta_market_return_df = self.get_beta_market_return()
+        beta_market_volatility_df = self.get_market_volatility(market_return_df)
+        beta_market_drawdown = self.get_beta_market_drawdown(21)
         
         market_data_dict = {
-            "returns": market_return_df, 
-            "momentum": market_momentum_df,
-            "volatility": market_volatility_df, 
-            "drawdown": market_drawdown_df
+            "beta_market_return": beta_market_return_df, 
+            "beta_market_volatility": beta_market_volatility_df, 
+            "beta_market_drawdown": beta_market_drawdown
         }
         
+        print(beta_market_return_df)
+        
         for feature, df in market_data_dict.items():
-            df.to_parquet(self.paths_dict[feature], index=False, engine="pyarrow")
+            df.reset_index().to_parquet(self.paths_dict[feature], index=False, engine="pyarrow")
             
         return market_data_dict
