@@ -105,6 +105,7 @@ for model_name, model_dir in model_paths.items():
             "hit": hit
         }
 
+print(results["dt"]["macro_market"]["ic"])
 
 hit_contingency_tables = {}
 for feature_name in feature_sets:

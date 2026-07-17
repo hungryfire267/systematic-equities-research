@@ -1,5 +1,7 @@
 import streamlit as st
 from components.sidebar import render_sidebar
+from views.overview import render_overview
+from views.portfolio import render_portfolio
 
 st.set_page_config(
     page_title="ASX Alpha System",
@@ -7,17 +9,10 @@ st.set_page_config(
     layout="wide"
 )
 
-render_sidebar()
+selected_page = render_sidebar()
 
-pages = { 
-    "Navigation": [
-        st.Page(
-            "views/5_Model_Comparison.py",
-            title="Model Comparison",
-            icon=":material/compare_arrows:"
-        )
-    ]
-}
-
-selected_page = st.navigation(pages)
-selected_page.run()
+if selected_page == "🏠  Overview":
+    render_overview()
+elif selected_page == "📊  Portfolio":
+    render_portfolio()
+    
