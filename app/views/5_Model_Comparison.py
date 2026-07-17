@@ -7,6 +7,7 @@ import sys
 from components.feature_comparison import (
     render_feature_comparison, 
     render_forecast_error_section,
+    render_performance_comparison,
     render_hypothesis_card
 )
 from components.utils import get_hit_contingency_table
@@ -18,6 +19,7 @@ sys.path.append(str(BASE_DIR))
 from scripts.portfolio.metrics import GetMetrics, GetPredictionMetrics
 from scripts.portfolio.hypothesistest import ModelHypothesisTest
 
+BACKTEST_RESULTS_DT_DIR = BASE_DIR / "results" / "backtest" / "dt"
 BACKTEST_RESULTS_LIGHTGBM_DIR = BASE_DIR / "results" /  "backtest" / "lightgbm"
 BACKTEST_RESULTS_XGBOOST_DIR = BASE_DIR / "results" /  "backtest" / "xgboost"
 
@@ -73,6 +75,7 @@ stock_tab, market_tab, macro_tab = st.tabs(
 )
 
 model_paths = {
+    "dt": BACKTEST_RESULTS_DT_DIR,
     "lightgbm": BACKTEST_RESULTS_LIGHTGBM_DIR, 
     "xgboost": BACKTEST_RESULTS_XGBOOST_DIR
 }
@@ -146,10 +149,19 @@ with stock_tab:
         feature_description=(
             "Price, volume, momentum and volatility predictors."
         ),
+        dt_results=results["dt"]["stock"]["metrics"],
         lightgbm_results=results["lightgbm"]["stock"]["metrics"],
         xgboost_results=results["xgboost"]["stock"]["metrics"],
+        dt_ic=results["dt"]["stock"]["ic"],
         lightgbm_ic=results["lightgbm"]["stock"]["ic"],
         xgboost_ic=results["xgboost"]["stock"]["ic"],
+        lightgbm_returns=results["lightgbm"]["stock"]["returns"],
+        xgboost_returns=results["xgboost"]["stock"]["returns"]
+    )
+    
+    render_performance_comparison(
+        lightgbm_results=results["lightgbm"]["stock"]["metrics"],
+        xgboost_results=results["xgboost"]["stock"]["metrics"],
         lightgbm_returns=results["lightgbm"]["stock"]["returns"],
         xgboost_returns=results["xgboost"]["stock"]["returns"]
     )
@@ -326,40 +338,23 @@ with market_tab:
             "Stock-specific variables combined with ASX 200, "
             "sector and market-wide information."
         ),
+        dt_results=results["dt"]["market"]["metrics"],
         lightgbm_results=results["lightgbm"]["market"]["metrics"],
         xgboost_results=results["xgboost"]["market"]["metrics"],
+        dt_ic=results["dt"]["market"]["ic"],
         lightgbm_ic=results["lightgbm"]["market"]["ic"],
         xgboost_ic=results["xgboost"]["market"]["ic"],
         lightgbm_returns=results["lightgbm"]["market"]["returns"],
         xgboost_returns=results["xgboost"]["market"]["returns"]
     )
     
-    st.markdown(
-        """
-        <div style="margin-bottom:1.5rem;">
-            <h1 style="
-                font-size:2.4rem;
-                font-weight:800;
-                color:#0F172A;
-                margin-bottom:0.25rem;
-            ">
-                Hypothesis Testing
-            </h1>
-
-            <p style="
-                font-size:1.02rem;
-                color:#64748B;
-                line-height:1.6;
-                margin-top:0;
-                margin-bottom:0;
-            ">
-                Statistical tests assessing whether differences in predictive quality,
-                portfolio performance and feature-set value are greater than expected
-                from random variation.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.write("#### Hypothesis Testing")
+    st.caption(
+    """
+        Statistical tests assessing whether differences in predictive quality,
+        portfolio performance and feature-set value are greater than expected
+        from random variation.
+    """
     )
     
     render_hypothesis_card(
@@ -512,40 +507,23 @@ with macro_tab:
             "Stock and market information combined with rates, "
             "inflation, exchange rates and other macroeconomic variables."
         ),
+        dt_results=results["dt"]["macro_market"]["metrics"],
         lightgbm_results=results["lightgbm"]["macro_market"]["metrics"],
         xgboost_results=results["xgboost"]["macro_market"]["metrics"],
+        dt_ic=results["dt"]["macro_market"]["ic"],
         lightgbm_ic=results["lightgbm"]["macro_market"]["ic"],
         xgboost_ic=results["xgboost"]["macro_market"]["ic"],
         lightgbm_returns=results["lightgbm"]["macro_market"]["returns"],
         xgboost_returns=results["xgboost"]["macro_market"]["returns"]
     )
     
-    st.markdown(
+    st.write("#### Hypothesis Testing")
+    st.caption(
         """
-        <div style="margin-bottom:1.5rem;">
-            <h1 style="
-                font-size:2.4rem;
-                font-weight:800;
-                color:#0F172A;
-                margin-bottom:0.25rem;
-            ">
-                Hypothesis Testing
-            </h1>
-
-            <p style="
-                font-size:1.02rem;
-                color:#64748B;
-                line-height:1.6;
-                margin-top:0;
-                margin-bottom:0;
-            ">
-                Statistical tests assessing whether differences in predictive quality,
-                portfolio performance and feature-set value are greater than expected
-                from random variation.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True
+            Statistical tests assessing whether differences in predictive quality,
+            portfolio performance and feature-set value are greater than expected
+            from random variation.
+        """
     )
     
     render_hypothesis_card(

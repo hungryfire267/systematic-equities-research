@@ -13,11 +13,15 @@ from scripts.portfolio.selection import TopBottom20Selector
 BASE_DIR = Path(__file__).resolve().parents[1]
 COMPANIES_DIR = BASE_DIR / "data" / "raw" / "companies"
 
+DT_MODEL_DIR = BASE_DIR / "results" / "dt_model" 
 LIGHTGBM_MODEL_DIR = BASE_DIR / "results" / "lightgbm_model"
 XGBOOST_MODEL_DIR = BASE_DIR / "results" / "xgboost_model"
 
 BACKTEST_RESULTS_DIR = BASE_DIR / "results" /  "backtest"
 BACKTEST_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+BACKTEST_DT_DIR = BACKTEST_RESULTS_DIR / "dt"
+BACKTEST_DT_DIR.mkdir(parents=True, exist_ok=True)
 
 BACKTEST_LIGHTGBM_DIR = BACKTEST_RESULTS_DIR / "lightgbm"
 BACKTEST_LIGHTGBM_DIR.mkdir(parents=True, exist_ok=True)
@@ -81,6 +85,10 @@ class GetPortfolioReturns:
         self.save_portfolio(final_datasets_df_dict)
         
 if __name__ == "__main__": 
+    dt_stock_dir = os.path.join(DT_MODEL_DIR, "dt_model_stock.pkl")
+    dt_market_dir = os.path.join(DT_MODEL_DIR, "dt_model_market.pkl")
+    dt_macro_market_dir = os.path.join(DT_MODEL_DIR, "dt_model_macro_market.pkl")
+    
     lgbm_stock_dir = os.path.join(LIGHTGBM_MODEL_DIR, "lightgbm_model_stock.pkl")
     lgbm_market_dir = os.path.join(LIGHTGBM_MODEL_DIR, "lightgbm_model_market.pkl")
     lgbm_macro_market_dir = os.path.join(LIGHTGBM_MODEL_DIR, "lightgbm_model_macro_market.pkl")
@@ -88,6 +96,15 @@ if __name__ == "__main__":
     xgboost_stock_dir = os.path.join(XGBOOST_MODEL_DIR, "xgboost_model_stock.pkl")
     xgboost_market_dir = os.path.join(XGBOOST_MODEL_DIR, "xgboost_model_market.pkl")
     xgboost_macro_market_dir = os.path.join(XGBOOST_MODEL_DIR, "xgboost_model_macro_market.pkl")
+    
+    print("Running Decision Tree Portfolio...")
+    print("Running Stock...")
+    dt_portfolio_stock = GetPortfolioReturns(dt_stock_dir, BACKTEST_DT_DIR, "stock").run_data() 
+    print("Running Stock + Market...")
+    dt_portfolio_market = GetPortfolioReturns(dt_market_dir, BACKTEST_DT_DIR, "market").run_data()
+    print("Running Stock + Market + Macro...")
+    dt_portfolio_macro_market = GetPortfolioReturns(dt_macro_market_dir, BACKTEST_DT_DIR, "macro_market").run_data()
+    
     
     print("Running LightGBM Portfolio...")
     print("Running Stock...")
