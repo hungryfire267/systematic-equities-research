@@ -21,13 +21,17 @@ def render_feature_comparison(
     xgboost_results: dict,
     dt_ic: pd.Series,
     lightgbm_ic: pd.Series,
-    xgboost_ic: pd.Series,
-    lightgbm_returns: pd.DataFrame,
-    xgboost_returns: pd.DataFrame
-):
+    xgboost_ic: pd.Series
+) -> None:
     dt_pred = dt_results["prediction"]
     lgbm_pred = lightgbm_results["prediction"]
     xgb_pred = xgboost_results["prediction"]
+
+    st.markdown("## Prediction Analytics")
+    st.caption(
+        "Measures how effectively each model ranks future returns, predicts "
+        "direction and limits forecast error before portfolio construction."
+    )
 
     st.markdown(f"### {feature_title}")
     st.caption(feature_description)
@@ -35,83 +39,131 @@ def render_feature_comparison(
     top_left, top_right = st.columns(2)
 
     with top_left:
-        st.plotly_chart(
-            create_prediction_metric_chart(
-                dt_pred,
-                lgbm_pred,
-                xgb_pred
-            ),
-            width="stretch"
-        )
+        with st.container(border=True):
+            st.plotly_chart(
+                create_prediction_metric_chart(
+                    dt_pred,
+                    lgbm_pred,
+                    xgb_pred
+                ),
+                width="stretch"
+            )
 
+    with top_right:
+        with st.container(border=True):
+            st.plotly_chart(
+                create_ic_chart(
+                    dt_ic,
+                    lightgbm_ic,
+                    xgboost_ic
+                ),
+                width="stretch"
+            )
+
+    st.markdown(
+        "<div style='height:8px;'></div>",
+        unsafe_allow_html=True
+    )
+
+    with st.container(border=True):
         render_hit_rate_cards(
+            dt_pred,
             lgbm_pred,
             xgb_pred
         )
-
-    with top_right:
-        st.plotly_chart(
-            create_ic_chart(
-                dt_ic,
-                lightgbm_ic,
-                xgboost_ic
-            ),
-            width="stretch"
+        # Adds extra breathing room beneath the three hit-rate cards so the
+        # lower edge of the section does not feel cramped.
+        st.markdown(
+            "<div style='height:12px;'></div>",
+            unsafe_allow_html=True
         )
 
-    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='height:10px;'></div>",
+        unsafe_allow_html=True
+    )
 
-        
+    render_forecast_error_section(
+        dt_pred,
+        lgbm_pred,
+        xgb_pred
+    )
+
+    st.markdown(
+        "<div style='height:10px;'></div>",
+        unsafe_allow_html=True
+    )
+
 def render_performance_comparison(
+    dt_results: dict,
     lightgbm_results: dict,
     xgboost_results: dict,
+    dt_returns: pd.DataFrame,
     lightgbm_returns: pd.DataFrame,
     xgboost_returns: pd.DataFrame
 ) -> None:
+    dt_port = dt_results["portfolio"]
     lgbm_port = lightgbm_results["portfolio"]
     xgb_port = xgboost_results["portfolio"]
+
+    st.markdown("## Performance Analytics")
+    st.caption(
+        "Translates the model forecasts into realised portfolio outcomes, "
+        "including cumulative return, drawdown and risk-adjusted performance."
+    )
 
     top_left, top_right = st.columns(2)
 
     with top_left:
-        st.plotly_chart(
-            create_equity_curve(
-                lightgbm_returns,
-                xgboost_returns
-            ),
-            width="stretch"
-        )
+        with st.container(border=True):
+            st.plotly_chart(
+                create_equity_curve(
+                    dt_returns,
+                    lightgbm_returns,
+                    xgboost_returns
+                ),
+                width="stretch"
+            )
 
     with top_right:
-        st.plotly_chart(
-            create_drawdown_curve(
-                lightgbm_returns,
-                xgboost_returns
-            ),
-            width="stretch"
-        )
+        with st.container(border=True):
+            st.plotly_chart(
+                create_drawdown_curve(
+                    dt_returns,
+                    lightgbm_returns,
+                    xgboost_returns
+                ),
+                width="stretch"
+            )
 
-    bottom_left, bottom_right = st.columns([1, 1.05])
+    # Equal column weights ensure that the performance table and rolling
+    # Sharpe chart receive exactly half of the available row width.
+    bottom_left, bottom_right = st.columns(2)
 
     with bottom_left:
-        render_portfolio_performance_table(
-            lgbm_port,
-            xgb_port
-        )
+        with st.container(border=True):
+            render_portfolio_performance_table(
+                lgbm_port,
+                xgb_port,
+                dt_port
+            )
 
     with bottom_right:
-        st.plotly_chart(
-            create_rolling_sharpe_chart(
-                lightgbm_returns,
-                xgboost_returns,
-                window=13
-            ),
-            width="stretch"
-        )
+        with st.container(border=True):
+            st.plotly_chart(
+                create_rolling_sharpe_chart(
+                    dt_returns,
+                    lightgbm_returns,
+                    xgboost_returns,
+                    window=13
+                ),
+                width="stretch"
+            )
         
 def render_portfolio_performance_table(
     lightgbm_portfolio: dict,
-    xgboost_portfolio: dict
+    xgboost_portfolio: dict,
+    decision_tree_portfolio: dict
 ) -> None:
     metrics = [
         ("Annual Return", "annual_return", True, True),
@@ -123,56 +175,71 @@ def render_portfolio_performance_table(
         ("Weekly Win Rate", "win_rate", True, True)
     ]
 
+    portfolios = {
+        "Decision Tree": decision_tree_portfolio,
+        "LightGBM": lightgbm_portfolio,
+        "XGBoost": xgboost_portfolio
+    }
+
+    badge_colours = {
+        "Decision Tree": {
+            "background": "#FEF3C7",
+            "colour": "#D97706"
+        },
+        "LightGBM": {
+            "background": "#DCFCE7",
+            "colour": "#059669"
+        },
+        "XGBoost": {
+            "background": "#DBEAFE",
+            "colour": "#2563EB"
+        }
+    }
+
     rows = ""
 
     for label, key, percentage, higher_is_better in metrics:
-        lgbm_value = lightgbm_portfolio[key]
-        xgb_value = xgboost_portfolio[key]
+        values = {
+            model_name: portfolio[key]
+            for model_name, portfolio in portfolios.items()
+        }
 
         if higher_is_better:
-            winner = (
-                "LightGBM"
-                if lgbm_value > xgb_value
-                else "XGBoost"
-            )
+            winner = max(values, key=values.get)
         else:
-            winner = (
-                "LightGBM"
-                if lgbm_value < xgb_value
-                else "XGBoost"
+            winner = min(values, key=values.get)
+
+        displays = {
+            model_name: (
+                f"{value:.1%}"
+                if percentage
+                else f"{value:.2f}"
             )
+            for model_name, value in values.items()
+        }
 
-        if percentage:
-            lgbm_display = f"{lgbm_value:.1%}"
-            xgb_display = f"{xgb_value:.1%}"
-        else:
-            lgbm_display = f"{lgbm_value:.2f}"
-            xgb_display = f"{xgb_value:.2f}"
-
-        badge_background = (
-            "#DCFCE7" if winner == "LightGBM" else "#DBEAFE"
-        )
-        badge_colour = (
-            "#059669" if winner == "LightGBM" else "#2563EB"
-        )
+        badge_background = badge_colours[winner]["background"]
+        badge_colour = badge_colours[winner]["colour"]
 
         rows += (
             "<tr>"
             f'<td style="text-align:left;">{label}</td>'
-            f"<td>{lgbm_display}</td>"
-            f"<td>{xgb_display}</td>"
+            f"<td>{displays['Decision Tree']}</td>"
+            f"<td>{displays['LightGBM']}</td>"
+            f"<td>{displays['XGBoost']}</td>"
             "<td>"
             f'<span style="background:{badge_background};'
             f'color:{badge_colour};padding:0.2rem 0.6rem;'
             'border-radius:999px;font-size:0.72rem;'
-            f'font-weight:700;">{winner}</span>'
+            f'font-weight:700;white-space:nowrap;">{winner}</span>'
             "</td>"
             "</tr>"
         )
 
     table_html = (
-        '<div style="border:1px solid #E2E8F0;'
-        'border-radius:12px;overflow:hidden;background:#FFFFFF;">'
+        '<div style="border:0;'
+        'border-radius:0;overflow:hidden;background:#FFFFFF;'
+        'height:360px;">'
         '<div style="padding:0.8rem 0.9rem;'
         'font-size:0.9rem;font-weight:750;color:#0F172A;">'
         "Portfolio Performance Summary"
@@ -182,6 +249,7 @@ def render_portfolio_performance_table(
         "<thead>"
         '<tr style="background:#F8FAFC;">'
         '<th style="text-align:left;">Metric</th>'
+        "<th>Decision Tree</th>"
         "<th>LightGBM</th>"
         "<th>XGBoost</th>"
         "<th>Better</th>"
@@ -209,14 +277,59 @@ def render_portfolio_performance_table(
     st.markdown(table_html, unsafe_allow_html=True)
     
 def render_sharpe_comparison(
+    dt_portfolio: dict,
     lightgbm_portfolio: dict,
     xgboost_portfolio: dict
 ) -> None:
-    lgbm_sharpe = lightgbm_portfolio["sharpe_ratio"]
-    xgb_sharpe = xgboost_portfolio["sharpe_ratio"]
+    sharpe_ratios = {
+        "Decision Tree": dt_portfolio["sharpe_ratio"],
+        "LightGBM": lightgbm_portfolio["sharpe_ratio"],
+        "XGBoost": xgboost_portfolio["sharpe_ratio"]
+    }
 
-    winner = "LightGBM" if lgbm_sharpe > xgb_sharpe else "XGBoost"
-    difference = abs(lgbm_sharpe - xgb_sharpe)
+    model_colours = {
+        "Decision Tree": "#F59E0B",
+        "LightGBM": "#10B981",
+        "XGBoost": "#2563EB"
+    }
+
+    winner = max(sharpe_ratios, key=sharpe_ratios.get)
+    winner_sharpe = sharpe_ratios[winner]
+
+    sorted_sharpes = sorted(
+        sharpe_ratios.values(),
+        reverse=True
+    )
+    difference = sorted_sharpes[0] - sorted_sharpes[1]
+
+    model_cards = ""
+
+    for model_name, sharpe_ratio in sharpe_ratios.items():
+        model_cards += (
+            '<div style="'
+            'background:#FFFFFF;'
+            f'border:1px solid {model_colours[model_name]}55;'
+            'border-radius:10px;'
+            'padding:0.85rem;'
+            '">'
+            '<p style="'
+            'margin:0;'
+            'color:#64748B;'
+            'font-size:0.72rem;'
+            'font-weight:800;'
+            '">'
+            f'{model_name.upper()}'
+            '</p>'
+            '<p style="'
+            'margin:0.2rem 0 0 0;'
+            'font-size:1.7rem;'
+            'font-weight:800;'
+            f'color:{model_colours[model_name]};'
+            '">'
+            f'{sharpe_ratio:.2f}'
+            '</p>'
+            '</div>'
+        )
 
     card_html = (
         '<div style="'
@@ -245,55 +358,10 @@ def render_sharpe_comparison(
         '</p>'
         '<div style="'
         'display:grid;'
-        'grid-template-columns:1fr 1fr;'
+        'grid-template-columns:repeat(3, minmax(0, 1fr));'
         'gap:0.8rem;'
         '">'
-        '<div style="'
-        'background:#FFFFFF;'
-        'border:1px solid #A7F3D0;'
-        'border-radius:10px;'
-        'padding:0.85rem;'
-        '">'
-        '<p style="'
-        'margin:0;'
-        'color:#64748B;'
-        'font-size:0.72rem;'
-        'font-weight:800;'
-        '">'
-        'LIGHTGBM'
-        '</p>'
-        '<p style="'
-        'margin:0.2rem 0 0 0;'
-        'font-size:1.7rem;'
-        'font-weight:800;'
-        'color:#10B981;'
-        '">'
-        f'{lgbm_sharpe:.2f}'
-        '</p>'
-        '</div>'
-        '<div style="'
-        'background:#FFFFFF;'
-        'border:1px solid #BFDBFE;'
-        'border-radius:10px;'
-        'padding:0.85rem;'
-        '">'
-        '<p style="'
-        'margin:0;'
-        'color:#64748B;'
-        'font-size:0.72rem;'
-        'font-weight:800;'
-        '">'
-        'XGBOOST'
-        '</p>'
-        '<p style="'
-        'margin:0.2rem 0 0 0;'
-        'font-size:1.7rem;'
-        'font-weight:800;'
-        'color:#2563EB;'
-        '">'
-        f'{xgb_sharpe:.2f}'
-        '</p>'
-        '</div>'
+        f'{model_cards}'
         '</div>'
         '<p style="'
         'margin:0.9rem 0 0 0;'
@@ -301,8 +369,8 @@ def render_sharpe_comparison(
         'font-size:0.84rem;'
         'line-height:1.5;'
         '">'
-        f'<strong>{winner}</strong> achieved the higher Sharpe ratio by '
-        f'{difference:.2f}, indicating stronger risk-adjusted portfolio performance.'
+        f'<strong>{winner}</strong> achieved the highest Sharpe ratio of '
+        f'{winner_sharpe:.2f}, exceeding the next-best model by {difference:.2f}.'
         '</p>'
         '</div>'
     )
@@ -366,7 +434,7 @@ def create_prediction_metric_chart(
     )
 
     fig.update_layout(
-        height=300,
+        height=360,
         margin=dict(l=20, r=70, t=55, b=20),
         legend_title_text="",
         yaxis_title="",
@@ -392,9 +460,36 @@ def create_prediction_metric_chart(
 
 
 def render_hit_rate_cards(
+    dt_prediction: dict,
     lightgbm_prediction: dict,
     xgboost_prediction: dict
-):
+) -> None:
+    prediction_metrics = {
+        "Decision Tree": dt_prediction,
+        "LightGBM": lightgbm_prediction,
+        "XGBoost": xgboost_prediction
+    }
+
+    card_styles = {
+        "Decision Tree": {
+            "border": "#FCD34D",
+            "background": "#FFFBEB"
+        },
+        "LightGBM": {
+            "border": "#A7F3D0",
+            "background": "#F0FDF4"
+        },
+        "XGBoost": {
+            "border": "#BFDBFE",
+            "background": "#EFF6FF"
+        }
+    }
+
+    winner = max(
+        prediction_metrics,
+        key=lambda model: prediction_metrics[model]["hit_rate"]
+    )
+
     st.markdown(
         """
         <p style="
@@ -404,47 +499,61 @@ def render_hit_rate_cards(
             margin:0 0 0.6rem 0;
         ">
             Directional Hit Rate
+            <span style="
+                color:#64748B;
+                font-size:0.78rem;
+                font-weight:500;
+            ">
+                (Higher is Better)
+            </span>
         </p>
         """,
         unsafe_allow_html=True
     )
 
-    lgbm_col, xgb_col = st.columns(2)
+    columns = st.columns(3)
 
-    lgbm_card = (
-        f'<div style="border:1px solid #A7F3D0;'
-        f'border-left:6px solid {MODEL_COLOURS["LightGBM"]};'
-        f'border-radius:12px;padding:14px 16px;'
-        f'background:#F0FDF4;min-height:92px;">'
-        f'<p style="color:#64748B;font-size:0.72rem;font-weight:800;'
-        f'letter-spacing:0.08em;margin:0;">LIGHTGBM</p>'
-        f'<p style="color:#0F172A;font-size:1.65rem;font-weight:800;'
-        f'margin:4px 0 0 0;">'
-        f'{lightgbm_prediction["hit_rate"]:.2%}'
-        f'</p>'
-        f'</div>'
-    )
+    for column, (model_name, prediction) in zip(
+        columns,
+        prediction_metrics.items()
+    ):
+        style = card_styles[model_name]
+        is_winner = model_name == winner
 
-    xgb_card = (
-        f'<div style="border:1px solid #BFDBFE;'
-        f'border-left:6px solid {MODEL_COLOURS["XGBoost"]};'
-        f'border-radius:12px;padding:14px 16px;'
-        f'background:#EFF6FF;min-height:92px;">'
-        f'<p style="color:#64748B;font-size:0.72rem;font-weight:800;'
-        f'letter-spacing:0.08em;margin:0;">XGBOOST</p>'
-        f'<p style="color:#0F172A;font-size:1.65rem;font-weight:800;'
-        f'margin:4px 0 0 0;">'
-        f'{xgboost_prediction["hit_rate"]:.2%}'
-        f'</p>'
-        f'</div>'
-    )
+        winner_badge = (
+            '<span style="background:#F1F5F9;color:#475569;'
+            'padding:0.12rem 0.38rem;border-radius:999px;'
+            'font-size:0.62rem;font-weight:800;margin-left:0.3rem;">'
+            'BEST</span>'
+            if is_winner
+            else ""
+        )
 
-    with lgbm_col:
-        st.markdown(lgbm_card, unsafe_allow_html=True)
+        card_html = (
+            '<div style="'
+            f'border:1px solid {style["border"]};'
+            f'border-left:6px solid {MODEL_COLOURS[model_name]};'
+            'border-radius:12px;'
+            'padding:14px 13px;'
+            f'background:{style["background"]};'
+            'min-height:92px;'
+            '">'
+            '<p style="color:#64748B;font-size:0.68rem;'
+            'font-weight:800;letter-spacing:0.06em;margin:0;'
+            'white-space:nowrap;">'
+            f'{model_name.upper()}'
+            f'{winner_badge}'
+            '</p>'
+            '<p style="'
+            f'color:{MODEL_COLOURS[model_name]};'
+            'font-size:1.55rem;font-weight:800;margin:4px 0 0 0;">'
+            f'{prediction["hit_rate"]:.2%}'
+            '</p>'
+            '</div>'
+        )
 
-    with xgb_col:
-        st.markdown(xgb_card, unsafe_allow_html=True)
-
+        with column:
+            st.markdown(card_html, unsafe_allow_html=True)
 
 def create_ic_chart(
     dt_ic: pd.Series,
@@ -473,7 +582,7 @@ def create_ic_chart(
                 width=2.5
             ),
             hovertemplate=(
-                "<b>LightGBM</b><br>"
+                "<b>Decision Tree</b><br>"
                 "Date: %{x|%d %b %Y}<br>"
                 "IC: %{y:.4f}"
                 "<extra></extra>"
@@ -519,16 +628,10 @@ def create_ic_chart(
         )
     )
 
-    fig.add_hline(
-        y=0,
-        line_dash="dash",
-        line_width=1.2,
-        line_color="#64748B"
-    )
 
     fig.update_layout(
         title="IC Through Time",
-        height=420,
+        height=360,
         margin=dict(l=20, r=20, t=55, b=20),
         legend_title_text="",
         xaxis_title="",
@@ -552,65 +655,54 @@ def create_ic_chart(
 
 
 def create_equity_curve(
+    dt_returns: pd.DataFrame,
     lightgbm_returns: pd.DataFrame,
     xgboost_returns: pd.DataFrame
 ):
+    dt = dt_returns.copy()
     lgbm = lightgbm_returns.copy()
     xgb = xgboost_returns.copy()
 
-    lgbm["Date"] = pd.to_datetime(lgbm["Date"])
-    xgb["Date"] = pd.to_datetime(xgb["Date"])
+    model_data = {
+        "Decision Tree": dt,
+        "LightGBM": lgbm,
+        "XGBoost": xgb
+    }
 
-    lgbm = lgbm.sort_values("Date")
-    xgb = xgb.sort_values("Date")
+    for returns_df in model_data.values():
+        returns_df["Date"] = pd.to_datetime(
+            returns_df["Date"]
+        )
+        returns_df.sort_values(
+            "Date",
+            inplace=True
+        )
 
-    lgbm["Equity"] = (
-        1 + lgbm["portfolio_return"]
-    ).cumprod() - 1
-
-    xgb["Equity"] = (
-        1 + xgb["portfolio_return"]
-    ).cumprod() - 1
+        returns_df["Equity"] = (
+            1 + returns_df["portfolio_return"]
+        ).cumprod() - 1
 
     fig = go.Figure()
 
-    fig.add_trace(
-        go.Scatter(
-            x=lgbm["Date"],
-            y=lgbm["Equity"],
-            mode="lines",
-            name="LightGBM",
-            line=dict(
-                color=MODEL_COLOURS["LightGBM"],
-                width=2.8
-            ),
-            hovertemplate=(
-                "<b>LightGBM</b><br>"
-                "Date: %{x|%d %b %Y}<br>"
-                "Cumulative return: %{y:.2%}"
-                "<extra></extra>"
+    for model_name, returns_df in model_data.items():
+        fig.add_trace(
+            go.Scatter(
+                x=returns_df["Date"],
+                y=returns_df["Equity"],
+                mode="lines",
+                name=model_name,
+                line=dict(
+                    color=MODEL_COLOURS[model_name],
+                    width=2.8
+                ),
+                hovertemplate=(
+                    f"<b>{model_name}</b><br>"
+                    "Date: %{x|%d %b %Y}<br>"
+                    "Cumulative return: %{y:.2%}"
+                    "<extra></extra>"
+                )
             )
         )
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=xgb["Date"],
-            y=xgb["Equity"],
-            mode="lines",
-            name="XGBoost",
-            line=dict(
-                color=MODEL_COLOURS["XGBoost"],
-                width=2.8
-            ),
-            hovertemplate=(
-                "<b>XGBoost</b><br>"
-                "Date: %{x|%d %b %Y}<br>"
-                "Cumulative return: %{y:.2%}"
-                "<extra></extra>"
-            )
-        )
-    )
 
     fig.add_hline(
         y=0,
@@ -646,64 +738,53 @@ def create_equity_curve(
 
 
 def create_drawdown_curve(
+    dt_returns: pd.DataFrame,
     lightgbm_returns: pd.DataFrame,
     xgboost_returns: pd.DataFrame
 ):
+    dt = dt_returns.copy()
     lgbm = lightgbm_returns.copy()
     xgb = xgboost_returns.copy()
 
-    lgbm["Date"] = pd.to_datetime(lgbm["Date"])
-    xgb["Date"] = pd.to_datetime(xgb["Date"])
-
-    lgbm = lgbm.sort_values("Date")
-    xgb = xgb.sort_values("Date")
+    for df in (dt, lgbm, xgb):
+        df["Date"] = pd.to_datetime(df["Date"])
+        df.sort_values("Date", inplace=True)
 
     def calculate_drawdown(df: pd.DataFrame) -> pd.Series:
         equity = (1 + df["portfolio_return"]).cumprod()
         return equity / equity.cummax() - 1
 
+    dt["Drawdown"] = calculate_drawdown(dt)
     lgbm["Drawdown"] = calculate_drawdown(lgbm)
     xgb["Drawdown"] = calculate_drawdown(xgb)
 
     fig = go.Figure()
 
-    fig.add_trace(
-        go.Scatter(
-            x=lgbm["Date"],
-            y=lgbm["Drawdown"],
-            mode="lines",
-            name="LightGBM",
-            line=dict(
-                color=MODEL_COLOURS["LightGBM"],
-                width=2.8
-            ),
-            hovertemplate=(
-                "<b>LightGBM</b><br>"
-                "Date: %{x|%d %b %Y}<br>"
-                "Drawdown: %{y:.2%}"
-                "<extra></extra>"
-            )
-        )
-    )
+    model_data = {
+        "Decision Tree": dt,
+        "LightGBM": lgbm,
+        "XGBoost": xgb
+    }
 
-    fig.add_trace(
-        go.Scatter(
-            x=xgb["Date"],
-            y=xgb["Drawdown"],
-            mode="lines",
-            name="XGBoost",
-            line=dict(
-                color=MODEL_COLOURS["XGBoost"],
-                width=2.8
-            ),
-            hovertemplate=(
-                "<b>XGBoost</b><br>"
-                "Date: %{x|%d %b %Y}<br>"
-                "Drawdown: %{y:.2%}"
-                "<extra></extra>"
+    for model_name, returns_df in model_data.items():
+        fig.add_trace(
+            go.Scatter(
+                x=returns_df["Date"],
+                y=returns_df["Drawdown"],
+                mode="lines",
+                name=model_name,
+                line=dict(
+                    color=MODEL_COLOURS[model_name],
+                    width=2.8
+                ),
+                hovertemplate=(
+                    f"<b>{model_name}</b><br>"
+                    "Date: %{x|%d %b %Y}<br>"
+                    "Drawdown: %{y:.2%}"
+                    "<extra></extra>"
+                )
             )
         )
-    )
 
     fig.add_hline(
         y=0,
@@ -738,10 +819,12 @@ def create_drawdown_curve(
     return fig
 
 def create_rolling_sharpe_chart(
+    dt_returns: pd.DataFrame,
     lightgbm_returns: pd.DataFrame,
     xgboost_returns: pd.DataFrame,
     window: int = 26
 ):
+    dt = dt_returns.copy()
     lgbm = lightgbm_returns.copy()
     xgb = xgboost_returns.copy()
 
@@ -762,6 +845,10 @@ def create_rolling_sharpe_chart(
             * np.sqrt(52)
         )
 
+    dt["Rolling Sharpe"] = rolling_sharpe(
+        dt["portfolio_return"]
+    )
+
     lgbm["Rolling Sharpe"] = rolling_sharpe(
         lgbm["portfolio_return"]
     )
@@ -771,6 +858,19 @@ def create_rolling_sharpe_chart(
     )
 
     fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=dt["Date"],
+            y=dt["Rolling Sharpe"],
+            mode="lines",
+            name="Decision Tree",
+            line=dict(
+                color=MODEL_COLOURS["Decision Tree"],
+                width=2.8
+            )
+        )
+    )
 
     fig.add_trace(
         go.Scatter(
@@ -805,7 +905,7 @@ def create_rolling_sharpe_chart(
     )
 
     fig.update_layout(
-        title="Rolling Sharpe Ratio",
+        title=f"{window}-Week Rolling Sharpe Ratio",
         height=360,
         margin=dict(l=20, r=20, t=55, b=20),
         legend_title_text="",
@@ -827,103 +927,204 @@ def create_rolling_sharpe_chart(
 
     return fig
 
-def render_forecast_error_section(lightgbm_data: dict, xgboost_data: dict) -> None:
-    lgbm_pred = lightgbm_data["metrics"]["prediction"]
-    xgb_pred = xgboost_data["metrics"]["prediction"]
+def render_forecast_error_section(
+    dt_prediction: dict,
+    lightgbm_prediction: dict,
+    xgboost_prediction: dict
+) -> None:
+    prediction_metrics = {
+        "Decision Tree": dt_prediction,
+        "LightGBM": lightgbm_prediction,
+        "XGBoost": xgboost_prediction
+    }
 
-    table_col, takeaway_col = st.columns([1, 1.35])
+    model_styles = {
+        "Decision Tree": {
+            "background": "#FFFBEB",
+            "header_background": "#FEF3C7",
+            "border": "#FCD34D",
+            "colour": "#D97706"
+        },
+        "LightGBM": {
+            "background": "#F0FDF4",
+            "header_background": "#DCFCE7",
+            "border": "#A7F3D0",
+            "colour": "#059669"
+        },
+        "XGBoost": {
+            "background": "#EFF6FF",
+            "header_background": "#DBEAFE",
+            "border": "#BFDBFE",
+            "colour": "#2563EB"
+        }
+    }
+
+    mae_winner = min(
+        prediction_metrics,
+        key=lambda model: prediction_metrics[model]["mae"]
+    )
+
+    rmse_winner = min(
+        prediction_metrics,
+        key=lambda model: prediction_metrics[model]["rmse"]
+    )
+
+    def badge(model: str) -> str:
+        style = model_styles[model]
+
+        return (
+            f'<span style="background:{style["header_background"]};'
+            f'color:{style["colour"]};'
+            'padding:0.18rem 0.55rem;'
+            'border-radius:999px;'
+            'font-size:0.68rem;'
+            'font-weight:700;'
+            'white-space:nowrap;'
+            '">'
+            f'{model}'
+            '</span>'
+        )
+
+    if mae_winner == rmse_winner:
+        takeaway = (
+            f"<strong>{mae_winner}</strong> records the lowest MAE and RMSE, "
+            "indicating the strongest overall point-forecast accuracy."
+        )
+        takeaway_style = model_styles[mae_winner]
+        takeaway_background = takeaway_style["background"]
+        takeaway_header_background = takeaway_style["header_background"]
+        takeaway_border = takeaway_style["border"]
+        takeaway_colour = takeaway_style["colour"]
+    else:
+        takeaway = (
+            f"<strong>{mae_winner}</strong> records the lowest MAE, while "
+            f"<strong>{rmse_winner}</strong> records the lowest RMSE. "
+            "The models therefore differ in average forecast error and "
+            "sensitivity to larger misses."
+        )
+        mae_style = model_styles[mae_winner]
+        rmse_style = model_styles[rmse_winner]
+        takeaway_background = (
+            f'linear-gradient(135deg,'
+            f'{mae_style["background"]},'
+            f'{rmse_style["background"]})'
+        )
+        takeaway_header_background = (
+            f'linear-gradient(135deg,'
+            f'{mae_style["header_background"]},'
+            f'{rmse_style["header_background"]})'
+        )
+        takeaway_border = mae_style["border"]
+        takeaway_colour = mae_style["colour"]
+
+    table_html = (
+        '<div style="'
+        'border:1px solid #E2E8F0;'
+        'border-radius:12px;'
+        'overflow:hidden;'
+        'background:#FFFFFF;'
+        'height:172px;'
+        'box-sizing:border-box;'
+        '">'
+        '<div style="'
+        'padding:0.72rem 0.85rem;'
+        'font-size:0.88rem;'
+        'font-weight:750;'
+        'color:#0F172A;'
+        'border-bottom:1px solid #E2E8F0;'
+        'background:#FFFFFF;'
+        '">'
+        'Forecast Error '
+        '<span style="'
+        'color:#64748B;'
+        'font-size:0.75rem;'
+        'font-weight:500;'
+        '">'
+        '(Lower is Better)'
+        '</span>'
+        '</div>'
+        '<table style="'
+        'width:100%;'
+        'border-collapse:collapse;'
+        'font-size:0.76rem;'
+        'table-layout:fixed;'
+        '">'
+        '<thead>'
+        '<tr style="background:#F8FAFC;">'
+        '<th style="padding:0.52rem;text-align:left;width:15%;">Metric</th>'
+        '<th style="padding:0.52rem;text-align:center;width:17%;">DT</th>'
+        '<th style="padding:0.52rem;text-align:center;width:21%;">LightGBM</th>'
+        '<th style="padding:0.52rem;text-align:center;width:20%;">XGBoost</th>'
+        '<th style="padding:0.52rem;text-align:center;width:27%;">Better</th>'
+        '</tr>'
+        '</thead>'
+        '<tbody>'
+        '<tr>'
+        '<td style="padding:0.58rem;border-top:1px solid #E2E8F0;text-align:left;">MAE</td>'
+        f'<td style="padding:0.58rem;text-align:center;border-top:1px solid #E2E8F0;">{dt_prediction["mae"]:.4f}</td>'
+        f'<td style="padding:0.58rem;text-align:center;border-top:1px solid #E2E8F0;">{lightgbm_prediction["mae"]:.4f}</td>'
+        f'<td style="padding:0.58rem;text-align:center;border-top:1px solid #E2E8F0;">{xgboost_prediction["mae"]:.4f}</td>'
+        f'<td style="padding:0.58rem;text-align:center;border-top:1px solid #E2E8F0;">{badge(mae_winner)}</td>'
+        '</tr>'
+        '<tr>'
+        '<td style="padding:0.58rem;border-top:1px solid #E2E8F0;text-align:left;">RMSE</td>'
+        f'<td style="padding:0.58rem;text-align:center;border-top:1px solid #E2E8F0;">{dt_prediction["rmse"]:.4f}</td>'
+        f'<td style="padding:0.58rem;text-align:center;border-top:1px solid #E2E8F0;">{lightgbm_prediction["rmse"]:.4f}</td>'
+        f'<td style="padding:0.58rem;text-align:center;border-top:1px solid #E2E8F0;">{xgboost_prediction["rmse"]:.4f}</td>'
+        f'<td style="padding:0.58rem;text-align:center;border-top:1px solid #E2E8F0;">{badge(rmse_winner)}</td>'
+        '</tr>'
+        '</tbody>'
+        '</table>'
+        '</div>'
+    )
+
+    takeaway_html = (
+        '<div style="'
+        f'border:1px solid {takeaway_border};'
+        'border-radius:12px;'
+        'overflow:hidden;'
+        f'background:{takeaway_background};'
+        'height:172px;'
+        'box-sizing:border-box;'
+        '">'
+        '<div style="'
+        'padding:0.72rem 0.85rem;'
+        'font-size:0.88rem;'
+        'font-weight:750;'
+        f'color:{takeaway_colour};'
+        f'border-bottom:1px solid {takeaway_border};'
+        f'background:{takeaway_header_background};'
+        '">'
+        '★ Key Takeaway'
+        '</div>'
+        '<div style="'
+        'padding:0.9rem 1rem;'
+        'font-size:0.8rem;'
+        'line-height:1.6;'
+        'color:#334155;'
+        f'background:{takeaway_background};'
+        '">'
+        f'{takeaway}'
+        '</div>'
+        '</div>'
+    )
+
+    table_col, takeaway_col = st.columns(
+        [1, 1],
+        gap="small"
+    )
 
     with table_col:
-        mae_winner = (
-            "LightGBM"
-            if lgbm_pred["mae"] < xgb_pred["mae"]
-            else "XGBoost"
+        st.markdown(
+            table_html,
+            unsafe_allow_html=True
         )
-
-        rmse_winner = (
-            "LightGBM"
-            if lgbm_pred["rmse"] < xgb_pred["rmse"]
-            else "XGBoost"
-        )
-
-        def badge(model: str) -> str:
-            if model == "LightGBM":
-                return (
-                    '<span style="background:#DCFCE7;color:#059669;'
-                    'padding:0.18rem 0.55rem;border-radius:999px;'
-                    'font-size:0.72rem;font-weight:700;">LightGBM</span>'
-                )
-
-            return (
-                '<span style="background:#DBEAFE;color:#2563EB;'
-                'padding:0.18rem 0.55rem;border-radius:999px;'
-                'font-size:0.72rem;font-weight:700;">XGBoost</span>'
-            )
-
-        table_html = (
-            '<div style="border:1px solid #E2E8F0;border-radius:10px;'
-            'overflow:hidden;background:#FFFFFF;">'
-            '<div style="padding:0.65rem 0.8rem;font-size:0.86rem;'
-            'font-weight:750;color:#0F172A;">'
-            'Forecast Error <span style="color:#64748B;">'
-            '(Lower is Better)</span></div>'
-            '<table style="width:100%;border-collapse:collapse;'
-            'font-size:0.78rem;">'
-            '<thead><tr style="background:#F8FAFC;">'
-            '<th style="padding:0.5rem;text-align:left;">Metric</th>'
-            '<th style="padding:0.5rem;text-align:center;">LightGBM</th>'
-            '<th style="padding:0.5rem;text-align:center;">XGBoost</th>'
-            '<th style="padding:0.5rem;text-align:center;">Better</th>'
-            '</tr></thead>'
-            '<tbody>'
-            '<tr>'
-            '<td style="padding:0.5rem;border-top:1px solid #E2E8F0;">MAE</td>'
-            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
-            f'{lgbm_pred["mae"]:.4f}</td>'
-            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
-            f'{xgb_pred["mae"]:.4f}</td>'
-            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
-            f'{badge(mae_winner)}</td>'
-            '</tr>'
-            '<tr>'
-            '<td style="padding:0.5rem;border-top:1px solid #E2E8F0;">RMSE</td>'
-            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
-            f'{lgbm_pred["rmse"]:.4f}</td>'
-            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
-            f'{xgb_pred["rmse"]:.4f}</td>'
-            f'<td style="padding:0.5rem;text-align:center;border-top:1px solid #E2E8F0;">'
-            f'{badge(rmse_winner)}</td>'
-            '</tr>'
-            '</tbody></table></div>'
-        )
-
-        st.markdown(table_html, unsafe_allow_html=True)
 
     with takeaway_col:
-        if mae_winner == rmse_winner:
-            takeaway = (
-                f"{mae_winner} delivers lower MAE and RMSE, indicating "
-                "stronger forecast accuracy across both error measures."
-            )
-        else:
-            takeaway = (
-                f"{mae_winner} records the lower MAE, while "
-                f"{rmse_winner} records the lower RMSE."
-            )
-
-        takeaway_html = (
-            '<div style="border:1px solid #BFDBFE;border-radius:10px;'
-            'background:linear-gradient(135deg,#F8FBFF,#EFF6FF);'
-            'padding:0.9rem 1rem;min-height:118px;">'
-            '<div style="font-size:0.86rem;font-weight:750;'
-            'color:#2563EB;margin-bottom:0.45rem;">'
-            '☆ Key Takeaway</div>'
-            f'<div style="font-size:0.8rem;line-height:1.5;color:#334155;">'
-            f'{takeaway}</div>'
-            '</div>'
+        st.markdown(
+            takeaway_html,
+            unsafe_allow_html=True
         )
-
-        st.markdown(takeaway_html, unsafe_allow_html=True)
 
 def render_hypothesis_card(
     number: int,
@@ -1046,5 +1247,3 @@ def render_hypothesis_card(
         ),
         unsafe_allow_html=True
     )
-    
-    
