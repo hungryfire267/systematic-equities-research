@@ -4,32 +4,49 @@ import scipy.stats as stats
 from statsmodels.stats.contingency_tables import mcnemar
 
 class ModelHypothesisTest: 
-    def __init__(self, alpha, xgboost_ic, lgbm_ic, hit_contingency_table, lightgbm_returns, xgboost_returns): 
+    def __init__(self, 
+        alpha, 
+        dt_ic,
+        xgboost_ic,
+        lgbm_ic,
+        hit_contingency_table, 
+        dt_returns,
+        lightgbm_returns, 
+        xgboost_returns
+    ): 
         self.alpha = alpha
         
+        self.dt_ic = dt_ic
         self.xgboost_ic = xgboost_ic
         self.lgbm_ic = lgbm_ic
         
         self.contingency_table = hit_contingency_table
         
+        self.dt_returns = dt_returns
         self.lightgbm_returns = lightgbm_returns
         self.xgboost_returns = xgboost_returns
         
-    def mean_weekly_ic(self): 
-        t_stat, p_value = stats.ttest_rel(self.xgboost_ic, self.lgbm_ic, alternative="greater")
+    def mean_weekly_ic(self, type_ic_1: str, type_ic_2: str): 
+        ic_mapping = {
+            "Decision Trees": self.dt_ic, 
+            "LightGBM": self.lgbm_ic,
+            "XGBoost": self.xgboost_ic
+        }
+        
+        t_stat, p_value = stats.ttest_rel(ic_mapping[type_ic_1], ic_mapping[type_ic_2], alternative="greater")
         
         statement = None
         if (p_value > self.alpha): 
             statement = f"""
                 Since the p-value is greater than the critical value of {self.alpha}, we do not reject the 
-                null hypothesis. We can conclude there is no evidence that XGBoost produce a higher mean
-                weekly IC than LightGBM.
+                null hypothesis. We can conclude there is no evidence that {type_ic_1} produce a higher mean
+                weekly IC than {type_ic_2}.
             """
         else: 
             statement = f"""
                 Since the p-value is less than the critical value of {self.alpha}, we have significant evidence to reject
-                the null hypothesis. Therefore we can conclude that there is evidence that XGBoost produce a higher
-                mean weekly IC than LightGBM.
+                the null hypothesis. Therefore we can conclude that there is evidence that {type_ic_1} produce a higher
+                mean weekly IC than {type_ic_2}.
             """
         return t_stat, p_value, statement
     
@@ -52,20 +69,25 @@ class ModelHypothesisTest:
         
         return chi_squared_stat, p_value, statement
     
-    def portfolio_returns_test(self): 
-        t_stat, p_value = stats.ttest_rel(self.xgboost_returns, self.lightgbm_returns, alternative="two-sided")
+    def portfolio_returns_test(self, type_returns_1, type_returns_2): 
+        returns_mapping = {
+            "Decision Trees": self.dt_ic, 
+            "LightGBM": self.lgbm_ic,
+            "XGBoost": self.xgboost_ic
+        }
+        t_stat, p_value = stats.ttest_rel(returns_mapping[type_returns_1], returns_mapping[type_returns_2], alternative="two-sided")
         
         statement = None
         if (p_value > self.alpha): 
             statement = f"""
                 Since the p-value is greater than the critical value of {self.alpha}, we do not reject the 
-                null hypothesis. We can conclude there is no evidence that XGBoost and LightGBM produce different mean
+                null hypothesis. We can conclude there is no evidence that {type_returns_1} and {type_returns_2} produce different mean
                 weekly portfolio returns.
             """
         else: 
             statement = f"""
                 Since the p-value is less than the critical value of {self.alpha}, we have significant evidence to reject
-                the null hypothesis. Therefore we can conclude that there is evidence that XGBoost and LightGBM produce different mean
+                the null hypothesis. Therefore we can conclude that there is evidence that {type_returns_1} and {type_returns_2} produce different mean
                 weekly portfolio returns.
             """
         return t_stat, p_value, statement
