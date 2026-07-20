@@ -35,13 +35,6 @@ def render_backtest_metric_cards(
 ) -> None:
     """
     Render headline strategy performance cards.
-
-    Expected keys:
-        annual_return
-        sharpe_ratio
-        sortino_ratio
-        max_drawdown
-        win_rate
     """
 
     metrics = [
@@ -50,35 +43,40 @@ def render_backtest_metric_cards(
             "key": "annual_return",
             "symbol": "↗",
             "percentage": True,
-            "higher_is_better": True
+            "higher_is_better": True,
+            "card_class": "annual-return-card"
         },
         {
             "label": "Sharpe Ratio",
             "key": "sharpe_ratio",
             "symbol": "◆",
             "percentage": False,
-            "higher_is_better": True
+            "higher_is_better": True,
+            "card_class": "sharpe-card"
         },
         {
             "label": "Sortino Ratio",
             "key": "sortino_ratio",
             "symbol": "▲",
             "percentage": False,
-            "higher_is_better": True
+            "higher_is_better": True,
+            "card_class": "sortino-card"
         },
         {
             "label": "Maximum Drawdown",
             "key": "max_drawdown",
             "symbol": "↓",
             "percentage": True,
-            "higher_is_better": True
+            "higher_is_better": True,
+            "card_class": "drawdown-card"
         },
         {
             "label": "Weekly Win Rate",
             "key": "win_rate",
             "symbol": "✓",
             "percentage": True,
-            "higher_is_better": True
+            "higher_is_better": True,
+            "card_class": "win-rate-card"
         }
     ]
 
@@ -90,13 +88,17 @@ def render_backtest_metric_cards(
         strategy_value = strategy_metrics.get(key)
         benchmark_value = benchmark_metrics.get(key)
 
+        formatted_value = _format_metric(
+            strategy_value,
+            metric["percentage"]
+        )
+
         if (
             strategy_value is None
             or benchmark_value is None
             or pd.isna(strategy_value)
             or pd.isna(benchmark_value)
         ):
-            difference = None
             delta_class = "metric-card-delta-neutral"
             delta_text = "Benchmark unavailable"
 
@@ -115,14 +117,22 @@ def render_backtest_metric_cards(
                 else "metric-card-delta-negative"
             )
 
+            formatted_difference = _format_difference(
+                difference,
+                metric["percentage"]
+            )
+
             delta_text = (
-                f"{_format_difference(difference, metric['percentage'])} "
+                f"{formatted_difference} "
                 f"vs {escape(benchmark_name)}"
             )
 
         cards.append(
             f"""
-            <div class="headline-metric-card">
+            <div class="
+                headline-metric-card
+                {metric["card_class"]}
+            ">
                 <div class="headline-metric-top">
                     <div class="headline-metric-symbol">
                         {metric["symbol"]}
@@ -134,19 +144,17 @@ def render_backtest_metric_cards(
                 </div>
 
                 <div class="headline-metric-value">
-                    {
-                        _format_metric(
-                            strategy_value,
-                            metric["percentage"]
-                        )
-                    }
+                    {formatted_value}
                 </div>
 
                 <div class="headline-metric-strategy">
                     {escape(strategy_name)}
                 </div>
 
-                <div class="headline-metric-delta {delta_class}">
+                <div class="
+                    headline-metric-delta
+                    {delta_class}
+                ">
                     {delta_text}
                 </div>
             </div>
@@ -190,11 +198,34 @@ def render_backtest_metric_cards(
             .headline-metric-card {{
                 min-width: 0;
                 padding: 16px;
-                border: 1px solid #DCE3EC;
                 border-radius: 13px;
-                background: #FFFFFF;
                 box-sizing: border-box;
                 box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+            }}
+
+            .annual-return-card {{
+                border: 1px solid #A7F3D0;
+                background: #ECFDF5;
+            }}
+
+            .sharpe-card {{
+                border: 1px solid #BFDBFE;
+                background: #EFF6FF;
+            }}
+
+            .sortino-card {{
+                border: 1px solid #DDD6FE;
+                background: #F5F3FF;
+            }}
+
+            .drawdown-card {{
+                border: 1px solid #FECACA;
+                background: #FEF2F2;
+            }}
+
+            .win-rate-card {{
+                border: 1px solid #FDE68A;
+                background: #FFFBEB;
             }}
 
             .headline-metric-top {{
@@ -212,10 +243,33 @@ def render_backtest_metric_cards(
                 height: 28px;
                 flex: 0 0 28px;
                 border-radius: 8px;
-                background: #EFF6FF;
-                color: #2563EB;
                 font-size: 15px;
                 font-weight: 800;
+            }}
+
+            .annual-return-card .headline-metric-symbol {{
+                background: #D1FAE5;
+                color: #047857;
+            }}
+
+            .sharpe-card .headline-metric-symbol {{
+                background: #DBEAFE;
+                color: #1D4ED8;
+            }}
+
+            .sortino-card .headline-metric-symbol {{
+                background: #EDE9FE;
+                color: #6D28D9;
+            }}
+
+            .drawdown-card .headline-metric-symbol {{
+                background: #FEE2E2;
+                color: #B91C1C;
+            }}
+
+            .win-rate-card .headline-metric-symbol {{
+                background: #FEF3C7;
+                color: #A16207;
             }}
 
             .headline-metric-label {{

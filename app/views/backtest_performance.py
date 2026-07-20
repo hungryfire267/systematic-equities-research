@@ -132,14 +132,31 @@ asx_metrics_full = asx_metrics.get_metrics()
 print(asx_metrics_full)
 
 def render_backtesting():
-    st.write(portfolio_metrics)
-    st.write(asx_metrics_full)
+    st.markdown("## Backtest Performance")
+
+    st.caption(
+        "A comparison between the ASX 200 benchmark "
+        "and the Decision Tree strategy."
+    )
+    
+    st.markdown("### Performance Highlights")
+
+    st.caption(
+        "Headline Decision Tree results compared with the ASX 200."
+    )
     
     render_backtest_metric_cards(
         strategy_metrics=portfolio_metrics,
         benchmark_metrics=asx_metrics_full,
         strategy_name="Decision Tree",
         benchmark_name="ASX 200"
+    )
+    
+    st.markdown("### Portfolio Performance")
+
+    st.caption(
+        "Growth, downside risk and return characteristics "
+        "of the Decision Tree strategy relative to the ASX 200."
     )
     
     performance_col, drawdown_col = st.columns(
