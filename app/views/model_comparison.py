@@ -1,27 +1,1792 @@
-import os
+import numpy as np
 import pandas as pd
-from pathlib import Path
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from scipy.stats import gaussian_kde
+import scipy.stats as stats
+from statsmodels.stats.contingency_tables import mcnemar
+from textwrap import dedent
+import os
+from pathlib import Path
 import sys
 
-from components.feature_comparison import (
-    render_feature_comparison, 
-    render_forecast_error_section,
-    render_performance_comparison,
-    render_hypothesis_card
-)
-from components.utils import get_hit_contingency_table
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(BASE_DIR))
 
 
 from scripts.portfolio.metrics import GetMetrics, GetPredictionMetrics
-from scripts.portfolio.hypothesistest import ModelHypothesisTest
 
 BACKTEST_RESULTS_DT_DIR = BASE_DIR / "results" / "backtest" / "dt"
 BACKTEST_RESULTS_LIGHTGBM_DIR = BASE_DIR / "results" /  "backtest" / "lightgbm"
 BACKTEST_RESULTS_XGBOOST_DIR = BASE_DIR / "results" /  "backtest" / "xgboost"
+
+# ============================================================
+# Shared model-comparison utilities
+# ============================================================
+
+def get_hit_contingency_table(
+    decision_tree_hit_df: pd.DataFrame,
+    lightgbm_hit_df: pd.DataFrame
+) -> pd.DataFrame:
+    """Build the paired hit/miss table for Decision Tree vs LightGBM."""
+
+    required_columns = {"Date", "Ticker", "hit"}
+
+    for name, frame in {
+        "Decision Tree": decision_tree_hit_df,
+        "LightGBM": lightgbm_hit_df
+    }.items():
+        missing = required_columns.difference(frame.columns)
+
+        if missing:
+            raise KeyError(
+                f"{name} hit data is missing columns: {sorted(missing)}"
+            )
+
+    comparison = (
+        decision_tree_hit_df[["Date", "Ticker", "hit"]]
+        .rename(columns={"hit": "decision_tree_hit"})
+        .merge(
+            lightgbm_hit_df[["Date", "Ticker", "hit"]]
+            .rename(columns={"hit": "lightgbm_hit"}),
+            on=["Date", "Ticker"],
+            how="inner",
+            validate="one_to_one"
+        )
+        .dropna(subset=["decision_tree_hit", "lightgbm_hit"])
+    )
+
+    comparison["decision_tree_hit"] = comparison[
+        "decision_tree_hit"
+    ].astype(bool)
+
+    comparison["lightgbm_hit"] = comparison[
+        "lightgbm_hit"
+    ].astype(bool)
+
+    table = pd.crosstab(
+        comparison["decision_tree_hit"],
+        comparison["lightgbm_hit"]
+    ).reindex(
+        index=[True, False],
+        columns=[True, False],
+        fill_value=0
+    )
+
+    table.index = [
+        "Decision Tree hit",
+        "Decision Tree miss"
+    ]
+
+    table.columns = [
+        "LightGBM hit",
+        "LightGBM miss"
+    ]
+
+    return table
+
+
+class ModelHypothesisTest:
+    """
+    Compare LightGBM against the Decision Tree baseline.
+
+    Tests
+    -----
+    1. Mean weekly IC:
+       H1: mean(IC_LGBM) > mean(IC_DT)
+    2. Directional hit rate:
+       H1: hit rates differ between LGBM and DT
+    3. Mean weekly portfolio return:
+       H1: mean(return_LGBM) > mean(return_DT)
+    4. Sharpe ratio:
+       H1: Sharpe_LGBM > Sharpe_DT
+    """
+
+    def __init__(
+        self,
+        alpha: float,
+        dt_ic: pd.Series,
+        xgboost_ic: pd.Series,
+        lgbm_ic: pd.Series,
+        hit_contingency_table,
+        dt_returns: pd.Series,
+        lightgbm_returns: pd.Series,
+        xgboost_returns: pd.Series
+    ) -> None:
+        self.alpha = alpha
+
+        self.dt_ic = dt_ic
+        self.xgboost_ic = xgboost_ic
+        self.lgbm_ic = lgbm_ic
+
+        self.contingency_table = np.asarray(
+            hit_contingency_table,
+            dtype=float
+        )
+
+        self.dt_returns = dt_returns
+        self.lightgbm_returns = lightgbm_returns
+        self.xgboost_returns = xgboost_returns
+
+    @staticmethod
+    def _aligned_pair(
+        first: pd.Series,
+        second: pd.Series,
+        first_name: str,
+        second_name: str
+    ) -> pd.DataFrame:
+        aligned = pd.concat(
+            [
+                pd.Series(first).rename(first_name),
+                pd.Series(second).rename(second_name)
+            ],
+            axis=1
+        ).dropna()
+
+        if len(aligned) < 3:
+            raise ValueError(
+                "At least three aligned observations are required."
+            )
+
+        return aligned.astype(float)
+
+    def mean_weekly_ic(self):
+        """One-sided paired t-test: LightGBM mean IC > Decision Tree mean IC."""
+
+        aligned = self._aligned_pair(
+            self.dt_ic,
+            self.lgbm_ic,
+            "Decision Tree",
+            "LightGBM"
+        )
+
+        t_statistic, p_value = stats.ttest_rel(
+            aligned["LightGBM"],
+            aligned["Decision Tree"],
+            alternative="greater"
+        )
+
+        if p_value < self.alpha:
+            statement = (
+                "Reject the null hypothesis. The aligned observations provide "
+                "evidence that LightGBM produces a higher mean weekly IC than "
+                "the Decision Tree baseline."
+            )
+        else:
+            statement = (
+                "Do not reject the null hypothesis. The aligned observations "
+                "do not provide sufficient evidence that LightGBM produces a "
+                "higher mean weekly IC than the Decision Tree baseline."
+            )
+
+        return float(t_statistic), float(p_value), statement
+
+    def mcnemar_test(self):
+        """Two-sided McNemar test: DT and LightGBM hit rates are different."""
+
+        if self.contingency_table.shape != (2, 2):
+            raise ValueError(
+                "McNemar's test requires a 2x2 paired contingency table."
+            )
+
+        result = mcnemar(
+            self.contingency_table,
+            exact=False,
+            correction=True
+        )
+
+        chi_squared_statistic = float(result.statistic)
+        p_value = float(result.pvalue)
+
+        if p_value < self.alpha:
+            statement = (
+                "Reject the null hypothesis. Decision Tree and LightGBM have "
+                "statistically different directional hit rates."
+            )
+        else:
+            statement = (
+                "Do not reject the null hypothesis. There is insufficient "
+                "evidence that Decision Tree and LightGBM have different "
+                "directional hit rates."
+            )
+
+        return chi_squared_statistic, p_value, statement
+
+    def portfolio_returns_test(self):
+        """
+        One-sided paired t-test:
+        LightGBM mean weekly return > Decision Tree mean weekly return.
+        """
+
+        aligned = self._aligned_pair(
+            self.dt_returns,
+            self.lightgbm_returns,
+            "Decision Tree",
+            "LightGBM"
+        )
+
+        t_statistic, p_value = stats.ttest_rel(
+            aligned["LightGBM"],
+            aligned["Decision Tree"],
+            alternative="greater"
+        )
+
+        if p_value < self.alpha:
+            statement = (
+                "Reject the null hypothesis. LightGBM produces a higher mean "
+                "weekly portfolio return than the Decision Tree baseline."
+            )
+        else:
+            statement = (
+                "Do not reject the null hypothesis. There is insufficient "
+                "evidence that LightGBM produces a higher mean weekly "
+                "portfolio return than the Decision Tree baseline."
+            )
+
+        return float(t_statistic), float(p_value), statement
+
+    def sharpe_ratio_test(self, periods_per_year: int = 52) -> dict:
+        """
+        One-sided Jobson-Korkie Sharpe-ratio test with Memmel correction.
+
+        H1: Sharpe_LGBM > Sharpe_DT.
+        Non-annualised Sharpe ratios are used in the test statistic.
+        """
+
+        aligned = self._aligned_pair(
+            self.dt_returns,
+            self.lightgbm_returns,
+            "Decision Tree",
+            "LightGBM"
+        )
+
+        dt = aligned["Decision Tree"]
+        lgbm = aligned["LightGBM"]
+        n_observations = len(aligned)
+
+        dt_std = dt.std(ddof=1)
+        lgbm_std = lgbm.std(ddof=1)
+
+        if dt_std == 0 or lgbm_std == 0:
+            raise ValueError(
+                "Sharpe ratios cannot be tested when return volatility is zero."
+            )
+
+        dt_sharpe = dt.mean() / dt_std
+        lgbm_sharpe = lgbm.mean() / lgbm_std
+        correlation = dt.corr(lgbm)
+
+        variance = (
+            2 * (1 - correlation)
+            + 0.5 * (
+                dt_sharpe**2
+                + lgbm_sharpe**2
+                - 2
+                * correlation**2
+                * dt_sharpe
+                * lgbm_sharpe
+            )
+        ) / n_observations
+
+        if not np.isfinite(variance) or variance <= 0:
+            raise ValueError(
+                "The estimated variance of the Sharpe-ratio difference "
+                "must be positive."
+            )
+
+        test_statistic = (
+            lgbm_sharpe - dt_sharpe
+        ) / np.sqrt(variance)
+
+        p_value = float(stats.norm.sf(test_statistic))
+        annualisation_factor = np.sqrt(periods_per_year)
+
+        if p_value < self.alpha:
+            statement = (
+                "Reject the null hypothesis. LightGBM has a statistically "
+                "higher Sharpe ratio than the Decision Tree baseline."
+            )
+        else:
+            statement = (
+                "Do not reject the null hypothesis. There is insufficient "
+                "evidence that LightGBM has a higher Sharpe ratio than the "
+                "Decision Tree baseline."
+            )
+
+        return {
+            "test": (
+                "One-sided Jobson-Korkie Sharpe-ratio test "
+                "with Memmel correction"
+            ),
+            "n_observations": n_observations,
+            "dt_sharpe": dt_sharpe * annualisation_factor,
+            "lgbm_sharpe": lgbm_sharpe * annualisation_factor,
+            "sharpe_difference": (
+                lgbm_sharpe - dt_sharpe
+            ) * annualisation_factor,
+            "correlation": correlation,
+            "test_statistic": float(test_statistic),
+            "z_statistic": float(test_statistic),
+            "p_value": p_value,
+            "reject_null": p_value < self.alpha,
+            "statement": statement
+        }
+
+
+# ============================================================
+# Prediction, performance and hypothesis-rendering components
+# ============================================================
+
+MODEL_COLOURS = {
+    "Decision Tree": "#F59E0B",
+    "LightGBM": "#10B981",
+    "XGBoost": "#2563EB"
+}
+
+
+
+def render_section_header(
+    icon: str,
+    title: str,
+    description: str
+) -> None:
+    """Render a dashboard section heading consistent with the other pages."""
+    st.markdown(
+        f"""
+        <div class="comparison-section-header">
+            <div class="comparison-section-icon">{icon}</div>
+            <div>
+                <div class="comparison-section-title">{title}</div>
+                <div class="comparison-section-description">{description}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def render_feature_set_banner(
+    feature_title: str,
+    feature_description: str
+) -> None:
+    """Render the selected feature-set heading inside each tab."""
+    feature_class = (
+        "feature-market-banner"
+        if "Market" in feature_title
+        else "feature-stock-banner"
+    )
+
+    icon = "🌐" if "Market" in feature_title else "📈"
+
+    st.markdown(
+        f"""
+        <div class="feature-set-banner {feature_class}">
+            <div class="feature-set-icon">{icon}</div>
+            <div>
+                <div class="feature-set-title">{feature_title}</div>
+                <div class="feature-set-description">
+                    {feature_description}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+def render_feature_comparison(
+    feature_title: str,
+    feature_description: str,
+    dt_results: dict,
+    lightgbm_results: dict,
+    xgboost_results: dict,
+    dt_ic: pd.Series,
+    lightgbm_ic: pd.Series,
+    xgboost_ic: pd.Series
+) -> None:
+    dt_pred = dt_results["prediction"]
+    lgbm_pred = lightgbm_results["prediction"]
+    xgb_pred = xgboost_results["prediction"]
+
+    render_feature_set_banner(
+        feature_title=feature_title,
+        feature_description=feature_description
+    )
+
+    render_section_header(
+        icon="↗",
+        title="Prediction Analytics",
+        description=(
+            "Compare ranking quality, directional accuracy and forecast "
+            "error before portfolio construction."
+        )
+    )
+
+    top_left, top_right = st.columns(2, gap="large")
+
+    with top_left:
+        with st.container(border=True, height=445):
+            st.plotly_chart(
+                create_prediction_metric_chart(
+                    dt_pred,
+                    lgbm_pred,
+                    xgb_pred
+                ),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key=f"prediction_metrics_{feature_title}"
+            )
+
+    with top_right:
+        with st.container(border=True, height=445):
+            st.plotly_chart(
+                create_ic_chart(
+                    dt_ic,
+                    lightgbm_ic,
+                    xgboost_ic
+                ),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key=f"ic_chart_{feature_title}"
+            )
+
+    hit_col, error_col = st.columns(2, gap="large")
+
+    with hit_col:
+        with st.container(border=True, height=245):
+            render_hit_rate_cards(
+                dt_pred,
+                lgbm_pred,
+                xgb_pred
+            )
+
+    with error_col:
+        with st.container(border=False, height=245):
+            render_forecast_error_section(
+                dt_pred,
+                lgbm_pred,
+                xgb_pred
+            )
+
+def render_performance_comparison(
+    dt_results: dict,
+    lightgbm_results: dict,
+    xgboost_results: dict,
+    dt_returns: pd.DataFrame,
+    lightgbm_returns: pd.DataFrame,
+    xgboost_returns: pd.DataFrame
+) -> None:
+    dt_port = dt_results["portfolio"]
+    lgbm_port = lightgbm_results["portfolio"]
+    xgb_port = xgboost_results["portfolio"]
+
+    render_section_header(
+        icon="▥",
+        title="Performance Analytics",
+        description=(
+            "Translate model forecasts into cumulative returns, drawdowns "
+            "and risk-adjusted portfolio outcomes."
+        )
+    )
+
+    top_left, top_right = st.columns(2, gap="large")
+
+    with top_left:
+        with st.container(border=True, height=455):
+            st.plotly_chart(
+                create_equity_curve(
+                    dt_returns,
+                    lightgbm_returns,
+                    xgboost_returns
+                ),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key=f"equity_{id(dt_returns)}"
+            )
+
+    with top_right:
+        with st.container(border=True, height=455):
+            st.plotly_chart(
+                create_drawdown_curve(
+                    dt_returns,
+                    lightgbm_returns,
+                    xgboost_returns
+                ),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key=f"drawdown_{id(dt_returns)}"
+            )
+
+    bottom_left, bottom_right = st.columns(2, gap="large")
+
+    with bottom_left:
+        with st.container(border=True, height=430):
+            render_portfolio_performance_table(
+                lgbm_port,
+                xgb_port,
+                dt_port
+            )
+
+    with bottom_right:
+        with st.container(border=True, height=430):
+            st.plotly_chart(
+                create_rolling_sharpe_chart(
+                    dt_returns,
+                    lightgbm_returns,
+                    xgboost_returns,
+                    window=13
+                ),
+                use_container_width=True,
+                config={"displayModeBar": False},
+                key=f"rolling_sharpe_{id(dt_returns)}"
+            )
+
+def render_portfolio_performance_table(
+    lightgbm_portfolio: dict,
+    xgboost_portfolio: dict,
+    decision_tree_portfolio: dict
+) -> None:
+    metrics = [
+        ("Annual Return", "annual_return", True, True),
+        ("Sharpe Ratio", "sharpe_ratio", False, True),
+        ("Sortino Ratio", "sortino_ratio", False, True),
+        ("Annual Volatility", "annual_volatility", True, False),
+        ("Maximum Drawdown", "max_drawdown", True, True),
+        ("Calmar Ratio", "calmar_ratio", False, True),
+        ("Weekly Win Rate", "win_rate", True, True)
+    ]
+
+    portfolios = {
+        "Decision Tree": decision_tree_portfolio,
+        "LightGBM": lightgbm_portfolio,
+        "XGBoost": xgboost_portfolio
+    }
+
+    badge_colours = {
+        "Decision Tree": {
+            "background": "#FEF3C7",
+            "colour": "#D97706"
+        },
+        "LightGBM": {
+            "background": "#DCFCE7",
+            "colour": "#059669"
+        },
+        "XGBoost": {
+            "background": "#DBEAFE",
+            "colour": "#2563EB"
+        }
+    }
+
+    rows = ""
+
+    for label, key, percentage, higher_is_better in metrics:
+        values = {
+            model_name: portfolio[key]
+            for model_name, portfolio in portfolios.items()
+        }
+
+        if higher_is_better:
+            winner = max(values, key=values.get)
+        else:
+            winner = min(values, key=values.get)
+
+        displays = {
+            model_name: (
+                f"{value:.1%}"
+                if percentage
+                else f"{value:.2f}"
+            )
+            for model_name, value in values.items()
+        }
+
+        badge_background = badge_colours[winner]["background"]
+        badge_colour = badge_colours[winner]["colour"]
+
+        rows += (
+            "<tr>"
+            f'<td style="text-align:left;">{label}</td>'
+            f"<td>{displays['Decision Tree']}</td>"
+            f"<td>{displays['LightGBM']}</td>"
+            f"<td>{displays['XGBoost']}</td>"
+            "<td>"
+            f'<span style="background:{badge_background};'
+            f'color:{badge_colour};padding:0.2rem 0.6rem;'
+            'border-radius:999px;font-size:0.72rem;'
+            f'font-weight:700;white-space:nowrap;">{winner}</span>'
+            "</td>"
+            "</tr>"
+        )
+
+    table_html = (
+        '<div style="border:0;'
+        'border-radius:0;overflow:hidden;background:#FFFFFF;'
+        'height:360px;">'
+        '<div style="padding:0.8rem 0.9rem;'
+        'font-size:0.9rem;font-weight:750;color:#0F172A;">'
+        "Portfolio Performance Summary"
+        "</div>"
+        '<table style="width:100%;border-collapse:collapse;'
+        'font-size:0.8rem;">'
+        "<thead>"
+        '<tr style="background:#F8FAFC;">'
+        '<th style="text-align:left;">Metric</th>'
+        "<th>Decision Tree</th>"
+        "<th>LightGBM</th>"
+        "<th>XGBoost</th>"
+        "<th>Better</th>"
+        "</tr>"
+        "</thead>"
+        f"<tbody>{rows}</tbody>"
+        "</table>"
+        "</div>"
+        "<style>"
+        "table th, table td {"
+        "padding:0.58rem 0.7rem;"
+        "border-top:1px solid #E2E8F0;"
+        "text-align:center;"
+        "}"
+        "table th {"
+        "font-weight:700;"
+        "color:#334155;"
+        "}"
+        "table td {"
+        "color:#0F172A;"
+        "}"
+        "</style>"
+    )
+
+    st.markdown(table_html, unsafe_allow_html=True)
+    
+def render_sharpe_comparison(
+    dt_portfolio: dict,
+    lightgbm_portfolio: dict,
+    xgboost_portfolio: dict
+) -> None:
+    sharpe_ratios = {
+        "Decision Tree": dt_portfolio["sharpe_ratio"],
+        "LightGBM": lightgbm_portfolio["sharpe_ratio"],
+        "XGBoost": xgboost_portfolio["sharpe_ratio"]
+    }
+
+    model_colours = {
+        "Decision Tree": "#F59E0B",
+        "LightGBM": "#10B981",
+        "XGBoost": "#2563EB"
+    }
+
+    winner = max(sharpe_ratios, key=sharpe_ratios.get)
+    winner_sharpe = sharpe_ratios[winner]
+
+    sorted_sharpes = sorted(
+        sharpe_ratios.values(),
+        reverse=True
+    )
+    difference = sorted_sharpes[0] - sorted_sharpes[1]
+
+    model_cards = ""
+
+    for model_name, sharpe_ratio in sharpe_ratios.items():
+        model_cards += (
+            '<div style="'
+            'background:#FFFFFF;'
+            f'border:1px solid {model_colours[model_name]}55;'
+            'border-radius:10px;'
+            'padding:0.85rem;'
+            '">'
+            '<p style="'
+            'margin:0;'
+            'color:#64748B;'
+            'font-size:0.72rem;'
+            'font-weight:800;'
+            '">'
+            f'{model_name.upper()}'
+            '</p>'
+            '<p style="'
+            'margin:0.2rem 0 0 0;'
+            'font-size:1.7rem;'
+            'font-weight:800;'
+            f'color:{model_colours[model_name]};'
+            '">'
+            f'{sharpe_ratio:.2f}'
+            '</p>'
+            '</div>'
+        )
+
+    card_html = (
+        '<div style="'
+        'border:1px solid #BBF7D0;'
+        'border-radius:12px;'
+        'background:linear-gradient(135deg,#F0FDF4,#ECFDF5);'
+        'padding:1.1rem 1.2rem;'
+        'min-height:260px;'
+        '">'
+        '<p style="'
+        'margin:0 0 0.35rem 0;'
+        'font-size:0.76rem;'
+        'font-weight:800;'
+        'letter-spacing:0.08em;'
+        'color:#059669;'
+        '">'
+        'RISK-ADJUSTED PERFORMANCE'
+        '</p>'
+        '<p style="'
+        'margin:0 0 0.8rem 0;'
+        'font-size:1rem;'
+        'font-weight:750;'
+        'color:#0F172A;'
+        '">'
+        'Sharpe Ratio Comparison'
+        '</p>'
+        '<div style="'
+        'display:grid;'
+        'grid-template-columns:repeat(3, minmax(0, 1fr));'
+        'gap:0.8rem;'
+        '">'
+        f'{model_cards}'
+        '</div>'
+        '<p style="'
+        'margin:0.9rem 0 0 0;'
+        'color:#334155;'
+        'font-size:0.84rem;'
+        'line-height:1.5;'
+        '">'
+        f'<strong>{winner}</strong> achieved the highest Sharpe ratio of '
+        f'{winner_sharpe:.2f}, exceeding the next-best model by {difference:.2f}.'
+        '</p>'
+        '</div>'
+    )
+
+    st.markdown(
+        card_html,
+        unsafe_allow_html=True
+    )
+    
+
+
+def create_prediction_metric_chart(
+    dt_prediction: dict,
+    lightgbm_prediction: dict,
+    xgboost_prediction: dict
+):
+    metrics_df = pd.DataFrame(
+        {
+            "Metric": [
+                "Mean IC",
+                "Annualised ICIR"
+            ],
+            "Decision Tree": [
+                dt_prediction["mean_ic"],
+                dt_prediction["annualised_icir"]
+            ],
+            "LightGBM": [
+                lightgbm_prediction["mean_ic"],
+                lightgbm_prediction["annualised_icir"]
+            ],
+            "XGBoost": [
+                xgboost_prediction["mean_ic"],
+                xgboost_prediction["annualised_icir"]
+            ]
+        }
+    )
+
+    long_df = metrics_df.melt(
+        id_vars="Metric",
+        var_name="Model",
+        value_name="Value"
+    )
+
+    fig = px.bar(
+        long_df,
+        x="Value",
+        y="Metric",
+        color="Model",
+        barmode="group",
+        orientation="h",
+        text="Value",
+        color_discrete_map=MODEL_COLOURS,
+        title="Ranking & Correlation Metrics"
+    )
+
+    fig.update_traces(
+        texttemplate="%{x:.4f}",
+        textposition="outside",
+        cliponaxis=False,
+        marker_line_width=0
+    )
+
+    fig.update_layout(
+        height=360,
+        margin=dict(l=20, r=70, t=55, b=20),
+        legend_title_text="",
+        yaxis_title="",
+        xaxis_title="",
+        hovermode="y unified",
+        bargap=0.30,
+        bargroupgap=0.08,
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor="rgba(148,163,184,0.18)",
+        zeroline=False
+    )
+
+    fig.update_yaxes(
+        showgrid=False
+    )
+
+    return fig
+
+
+def render_hit_rate_cards(
+    dt_prediction: dict,
+    lightgbm_prediction: dict,
+    xgboost_prediction: dict
+) -> None:
+    prediction_metrics = {
+        "Decision Tree": dt_prediction,
+        "LightGBM": lightgbm_prediction,
+        "XGBoost": xgboost_prediction
+    }
+
+    card_styles = {
+        "Decision Tree": {
+            "border": "#FCD34D",
+            "background": "#FFFBEB"
+        },
+        "LightGBM": {
+            "border": "#A7F3D0",
+            "background": "#F0FDF4"
+        },
+        "XGBoost": {
+            "border": "#BFDBFE",
+            "background": "#EFF6FF"
+        }
+    }
+
+    winner = max(
+        prediction_metrics,
+        key=lambda model: prediction_metrics[model]["hit_rate"]
+    )
+
+    st.markdown(
+        """
+        <p style="
+            font-size:0.95rem;
+            font-weight:700;
+            color:#0F172A;
+            margin:0 0 0.6rem 0;
+        ">
+            Directional Hit Rate
+            <span style="
+                color:#64748B;
+                font-size:0.78rem;
+                font-weight:500;
+            ">
+                (Higher is Better)
+            </span>
+        </p>
+        """,
+        unsafe_allow_html=True
+    )
+
+    columns = st.columns(3)
+
+    for column, (model_name, prediction) in zip(
+        columns,
+        prediction_metrics.items()
+    ):
+        style = card_styles[model_name]
+        is_winner = model_name == winner
+
+        winner_badge = (
+            '<span style="background:#F1F5F9;color:#475569;'
+            'padding:0.12rem 0.38rem;border-radius:999px;'
+            'font-size:0.62rem;font-weight:800;margin-left:0.3rem;">'
+            'BEST</span>'
+            if is_winner
+            else ""
+        )
+
+        card_html = (
+            '<div style="'
+            f'border:1px solid {style["border"]};'
+            f'border-left:6px solid {MODEL_COLOURS[model_name]};'
+            'border-radius:12px;'
+            'padding:14px 13px;'
+            f'background:{style["background"]};'
+            'min-height:92px;'
+            '">'
+            '<p style="color:#64748B;font-size:0.68rem;'
+            'font-weight:800;letter-spacing:0.06em;margin:0;'
+            'white-space:nowrap;">'
+            f'{model_name.upper()}'
+            f'{winner_badge}'
+            '</p>'
+            '<p style="'
+            f'color:{MODEL_COLOURS[model_name]};'
+            'font-size:1.55rem;font-weight:800;margin:4px 0 0 0;">'
+            f'{prediction["hit_rate"]:.2%}'
+            '</p>'
+            '</div>'
+        )
+
+        with column:
+            st.markdown(card_html, unsafe_allow_html=True)
+
+def create_ic_chart(
+    dt_ic: pd.Series,
+    lightgbm_ic: pd.Series,
+    xgboost_ic: pd.Series
+):
+    ic_df = pd.concat(
+        [
+            dt_ic.rename("Decision Tree"),
+            lightgbm_ic.rename("LightGBM"),
+            xgboost_ic.rename("XGBoost")
+        ],
+        axis=1
+    ).reset_index()
+
+    fig = go.Figure()
+    
+    fig.add_trace(
+        go.Scatter(
+            x=ic_df["Date"],
+            y=ic_df["Decision Tree"],
+            mode="lines",
+            name="Decision Tree",
+            line=dict(
+                color=MODEL_COLOURS["Decision Tree"],
+                width=2.5
+            ),
+            hovertemplate=(
+                "<b>Decision Tree</b><br>"
+                "Date: %{x|%d %b %Y}<br>"
+                "IC: %{y:.4f}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=ic_df["Date"],
+            y=ic_df["LightGBM"],
+            mode="lines",
+            name="LightGBM",
+            line=dict(
+                color=MODEL_COLOURS["LightGBM"],
+                width=2.5
+            ),
+            hovertemplate=(
+                "<b>LightGBM</b><br>"
+                "Date: %{x|%d %b %Y}<br>"
+                "IC: %{y:.4f}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=ic_df["Date"],
+            y=ic_df["XGBoost"],
+            mode="lines",
+            name="XGBoost",
+            line=dict(
+                color=MODEL_COLOURS["XGBoost"],
+                width=2.5
+            ),
+            hovertemplate=(
+                "<b>XGBoost</b><br>"
+                "Date: %{x|%d %b %Y}<br>"
+                "IC: %{y:.4f}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+
+    fig.update_layout(
+        title="IC Through Time",
+        height=360,
+        margin=dict(l=20, r=20, t=55, b=20),
+        legend_title_text="",
+        xaxis_title="",
+        yaxis_title="Weekly IC",
+        hovermode="x unified",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+
+    fig.update_xaxes(
+        showgrid=False
+    )
+
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(148,163,184,0.18)",
+        zeroline=False
+    )
+
+    return fig
+
+
+def create_equity_curve(
+    dt_returns: pd.DataFrame,
+    lightgbm_returns: pd.DataFrame,
+    xgboost_returns: pd.DataFrame
+):
+    dt = dt_returns.copy()
+    lgbm = lightgbm_returns.copy()
+    xgb = xgboost_returns.copy()
+
+    model_data = {
+        "Decision Tree": dt,
+        "LightGBM": lgbm,
+        "XGBoost": xgb
+    }
+
+    for returns_df in model_data.values():
+        returns_df["Date"] = pd.to_datetime(
+            returns_df["Date"]
+        )
+        returns_df.sort_values(
+            "Date",
+            inplace=True
+        )
+
+        returns_df["Equity"] = (
+            1 + returns_df["portfolio_return"]
+        ).cumprod() - 1
+
+    fig = go.Figure()
+
+    for model_name, returns_df in model_data.items():
+        fig.add_trace(
+            go.Scatter(
+                x=returns_df["Date"],
+                y=returns_df["Equity"],
+                mode="lines",
+                name=model_name,
+                line=dict(
+                    color=MODEL_COLOURS[model_name],
+                    width=2.8
+                ),
+                hovertemplate=(
+                    f"<b>{model_name}</b><br>"
+                    "Date: %{x|%d %b %Y}<br>"
+                    "Cumulative return: %{y:.2%}"
+                    "<extra></extra>"
+                )
+            )
+        )
+
+    fig.add_hline(
+        y=0,
+        line_dash="dash",
+        line_width=1,
+        line_color="#94A3B8"
+    )
+
+    fig.update_layout(
+        title="Equity Curve (Cumulative Net Return)",
+        height=380,
+        margin=dict(l=20, r=20, t=55, b=20),
+        legend_title_text="",
+        xaxis_title="",
+        yaxis_title="Cumulative Return",
+        yaxis_tickformat=".0%",
+        hovermode="x unified",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+
+    fig.update_xaxes(
+        showgrid=False
+    )
+
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(148,163,184,0.18)",
+        zeroline=False
+    )
+
+    return fig
+
+
+def create_drawdown_curve(
+    dt_returns: pd.DataFrame,
+    lightgbm_returns: pd.DataFrame,
+    xgboost_returns: pd.DataFrame
+):
+    dt = dt_returns.copy()
+    lgbm = lightgbm_returns.copy()
+    xgb = xgboost_returns.copy()
+
+    for df in (dt, lgbm, xgb):
+        df["Date"] = pd.to_datetime(df["Date"])
+        df.sort_values("Date", inplace=True)
+
+    def calculate_drawdown(df: pd.DataFrame) -> pd.Series:
+        equity = (1 + df["portfolio_return"]).cumprod()
+        return equity / equity.cummax() - 1
+
+    dt["Drawdown"] = calculate_drawdown(dt)
+    lgbm["Drawdown"] = calculate_drawdown(lgbm)
+    xgb["Drawdown"] = calculate_drawdown(xgb)
+
+    fig = go.Figure()
+
+    model_data = {
+        "Decision Tree": dt,
+        "LightGBM": lgbm,
+        "XGBoost": xgb
+    }
+
+    for model_name, returns_df in model_data.items():
+        fig.add_trace(
+            go.Scatter(
+                x=returns_df["Date"],
+                y=returns_df["Drawdown"],
+                mode="lines",
+                name=model_name,
+                line=dict(
+                    color=MODEL_COLOURS[model_name],
+                    width=2.8
+                ),
+                hovertemplate=(
+                    f"<b>{model_name}</b><br>"
+                    "Date: %{x|%d %b %Y}<br>"
+                    "Drawdown: %{y:.2%}"
+                    "<extra></extra>"
+                )
+            )
+        )
+
+    fig.add_hline(
+        y=0,
+        line_dash="dash",
+        line_width=1,
+        line_color="#94A3B8"
+    )
+
+    fig.update_layout(
+        title="Drawdown Curve",
+        height=380,
+        margin=dict(l=20, r=20, t=55, b=20),
+        legend_title_text="",
+        xaxis_title="",
+        yaxis_title="Drawdown",
+        yaxis_tickformat=".0%",
+        hovermode="x unified",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+
+    fig.update_xaxes(
+        showgrid=False
+    )
+
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(148,163,184,0.18)",
+        zeroline=False
+    )
+
+    return fig
+
+def create_rolling_sharpe_chart(
+    dt_returns: pd.DataFrame,
+    lightgbm_returns: pd.DataFrame,
+    xgboost_returns: pd.DataFrame,
+    window: int = 26
+):
+    dt = dt_returns.copy()
+    lgbm = lightgbm_returns.copy()
+    xgb = xgboost_returns.copy()
+
+    def rolling_sharpe(returns):
+        rolling_mean = returns.rolling(
+            window=window,
+            min_periods=window
+        ).mean()
+
+        rolling_std = returns.rolling(
+            window=window,
+            min_periods=window
+        ).std(ddof=1)
+
+        return (
+            rolling_mean
+            / rolling_std
+            * np.sqrt(52)
+        )
+
+    dt["Rolling Sharpe"] = rolling_sharpe(
+        dt["portfolio_return"]
+    )
+
+    lgbm["Rolling Sharpe"] = rolling_sharpe(
+        lgbm["portfolio_return"]
+    )
+
+    xgb["Rolling Sharpe"] = rolling_sharpe(
+        xgb["portfolio_return"]
+    )
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=dt["Date"],
+            y=dt["Rolling Sharpe"],
+            mode="lines",
+            name="Decision Tree",
+            line=dict(
+                color=MODEL_COLOURS["Decision Tree"],
+                width=2.8
+            )
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=lgbm["Date"],
+            y=lgbm["Rolling Sharpe"],
+            mode="lines",
+            name="LightGBM",
+            line=dict(
+                color=MODEL_COLOURS["LightGBM"],
+                width=2.8
+            )
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=xgb["Date"],
+            y=xgb["Rolling Sharpe"],
+            mode="lines",
+            name="XGBoost",
+            line=dict(
+                color=MODEL_COLOURS["XGBoost"],
+                width=2.8
+            )
+        )
+    )
+
+    fig.add_hline(
+        y=0,
+        line_dash="dash",
+        line_color="#94A3B8"
+    )
+
+    fig.update_layout(
+        title=f"{window}-Week Rolling Sharpe Ratio",
+        height=360,
+        margin=dict(l=20, r=20, t=55, b=20),
+        legend_title_text="",
+        xaxis_title="",
+        yaxis_title="Sharpe Ratio",
+        hovermode="x unified",
+        plot_bgcolor="white",
+        paper_bgcolor="white"
+    )
+
+    fig.update_xaxes(
+        showgrid=False
+    )
+
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(148,163,184,0.2)"
+    )
+
+    return fig
+
+def render_forecast_error_section(
+    dt_prediction: dict,
+    lightgbm_prediction: dict,
+    xgboost_prediction: dict
+) -> None:
+    prediction_metrics = {
+        "Decision Tree": dict(dt_prediction),
+        "LightGBM": dict(lightgbm_prediction),
+        "XGBoost": dict(xgboost_prediction)
+    }
+
+    model_styles = {
+        "Decision Tree": {
+            "background": "#FFFBEB",
+            "header_background": "#FEF3C7",
+            "border": "#FCD34D",
+            "colour": "#D97706"
+        },
+        "LightGBM": {
+            "background": "#F0FDF4",
+            "header_background": "#DCFCE7",
+            "border": "#A7F3D0",
+            "colour": "#059669"
+        },
+        "XGBoost": {
+            "background": "#EFF6FF",
+            "header_background": "#DBEAFE",
+            "border": "#BFDBFE",
+            "colour": "#2563EB"
+        }
+    }
+
+    # MSE may not be saved directly by GetPredictionMetrics.
+    # It is exactly RMSE squared, so derive it when necessary.
+    for metrics in prediction_metrics.values():
+        metrics.setdefault("mse", metrics["rmse"] ** 2)
+
+    mae_winner = min(
+        prediction_metrics,
+        key=lambda model: prediction_metrics[model]["mae"]
+    )
+    mse_winner = min(
+        prediction_metrics,
+        key=lambda model: prediction_metrics[model]["mse"]
+    )
+    rmse_winner = min(
+        prediction_metrics,
+        key=lambda model: prediction_metrics[model]["rmse"]
+    )
+
+    def badge(model: str) -> str:
+        style = model_styles[model]
+
+        return (
+            f'<span style="background:{style["header_background"]};'
+            f'color:{style["colour"]};padding:0.18rem 0.5rem;'
+            'border-radius:999px;font-size:0.66rem;font-weight:750;'
+            'white-space:nowrap;">'
+            f'{model}'
+            '</span>'
+        )
+
+    winners = {
+        "MAE": mae_winner,
+        "MSE": mse_winner,
+        "RMSE": rmse_winner
+    }
+
+    unique_winners = set(winners.values())
+
+    if len(unique_winners) == 1:
+        overall_winner = next(iter(unique_winners))
+        takeaway = (
+            f"<strong>{overall_winner}</strong> records the lowest MAE, "
+            "MSE and RMSE, indicating the strongest overall point-forecast "
+            "accuracy."
+        )
+        takeaway_style = model_styles[overall_winner]
+    else:
+        takeaway = (
+            f"<strong>MAE:</strong> {mae_winner}; "
+            f"<strong>MSE:</strong> {mse_winner}; "
+            f"<strong>RMSE:</strong> {rmse_winner}. "
+            "MAE measures average absolute error, while MSE and RMSE place "
+            "greater weight on larger forecast misses."
+        )
+        takeaway_style = model_styles[mae_winner]
+
+    rows = [
+        (
+            "MAE",
+            "mae",
+            ".4f",
+            mae_winner
+        ),
+        (
+            "MSE",
+            "mse",
+            ".6f",
+            mse_winner
+        ),
+        (
+            "RMSE",
+            "rmse",
+            ".4f",
+            rmse_winner
+        )
+    ]
+
+    row_html = ""
+
+    for label, key, number_format, winner in rows:
+        dt_value = format(prediction_metrics["Decision Tree"][key], number_format)
+        lgbm_value = format(prediction_metrics["LightGBM"][key], number_format)
+        xgb_value = format(prediction_metrics["XGBoost"][key], number_format)
+
+        row_html += (
+            "<tr>"
+            f'<td class="forecast-metric-name">{label}</td>'
+            f"<td>{dt_value}</td>"
+            f"<td>{lgbm_value}</td>"
+            f"<td>{xgb_value}</td>"
+            f"<td>{badge(winner)}</td>"
+            "</tr>"
+        )
+
+    table_html = f"""
+    <div class="forecast-error-card">
+        <div class="forecast-error-header">
+            Forecast Error
+            <span>(Lower is Better)</span>
+        </div>
+
+        <table class="forecast-error-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>DT</th>
+                    <th>LightGBM</th>
+                    <th>XGBoost</th>
+                    <th>Better</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {row_html}
+            </tbody>
+        </table>
+    </div>
+    """
+
+    takeaway_html = f"""
+    <div class="forecast-takeaway-card" style="
+        --takeaway-border:{takeaway_style["border"]};
+        --takeaway-background:{takeaway_style["background"]};
+        --takeaway-header:{takeaway_style["header_background"]};
+        --takeaway-colour:{takeaway_style["colour"]};
+    ">
+        <div class="forecast-takeaway-header">★ Key Takeaway</div>
+        <div class="forecast-takeaway-text">{takeaway}</div>
+    </div>
+    """
+
+    st.html(
+        """
+        <style>
+        .forecast-error-card,
+        .forecast-takeaway-card {
+            height:225px;
+            box-sizing:border-box;
+            border-radius:14px;
+            overflow:hidden;
+        }
+
+        .forecast-error-card {
+            border:1px solid #E2E8F0;
+            background:#FFFFFF;
+        }
+
+        .forecast-error-header,
+        .forecast-takeaway-header {
+            min-height:48px;
+            display:flex;
+            align-items:center;
+            padding:0.72rem 0.85rem;
+            box-sizing:border-box;
+            font-size:0.88rem;
+            font-weight:800;
+        }
+
+        .forecast-error-header {
+            color:#0F172A;
+            border-bottom:1px solid #E2E8F0;
+        }
+
+        .forecast-error-header span {
+            color:#64748B;
+            font-size:0.74rem;
+            font-weight:500;
+            margin-left:0.25rem;
+        }
+
+        .forecast-error-table {
+            width:100%;
+            border-collapse:collapse;
+            table-layout:fixed;
+            font-size:0.73rem;
+        }
+
+        .forecast-error-table th,
+        .forecast-error-table td {
+            padding:0.48rem 0.4rem;
+            border-top:1px solid #E2E8F0;
+            text-align:center;
+            font-variant-numeric:tabular-nums;
+            overflow-wrap:normal;
+            word-break:normal;
+        }
+
+        .forecast-error-table th {
+            color:#475569;
+            background:#F8FAFC;
+            font-weight:750;
+            white-space:nowrap;
+        }
+
+        .forecast-error-table th:first-child,
+        .forecast-error-table td:first-child {
+            width:12%;
+            text-align:left;
+            padding-left:0.65rem;
+        }
+
+        .forecast-error-table th:nth-child(2) {
+            width:13%;
+        }
+
+        .forecast-error-table th:nth-child(3) {
+            width:19%;
+        }
+
+        .forecast-error-table th:nth-child(4) {
+            width:17%;
+        }
+
+        .forecast-error-table th:last-child {
+            width:29%;
+        }
+
+        .forecast-metric-name {
+            color:#0F172A;
+            font-weight:750;
+        }
+
+        .forecast-takeaway-card {
+            border:1px solid var(--takeaway-border);
+            background:var(--takeaway-background);
+        }
+
+        .forecast-takeaway-header {
+            color:var(--takeaway-colour);
+            background:var(--takeaway-header);
+            border-bottom:1px solid var(--takeaway-border);
+        }
+
+        .forecast-takeaway-text {
+            padding:0.95rem 1rem;
+            color:#334155;
+            font-size:0.80rem;
+            line-height:1.58;
+        }
+        </style>
+        """
+    )
+
+    table_col, takeaway_col = st.columns(2, gap="small")
+
+    with table_col:
+        st.html(table_html)
+
+    with takeaway_col:
+        st.html(takeaway_html)
+
+def render_hypothesis_result(
+    statistic_label: str,
+    statistic_value: float,
+    p_value: float,
+    statement: str,
+    alpha: float = 0.05
+) -> None:
+    """Render the test statistic, p-value and inference in one aligned card."""
+
+    significant = p_value < alpha
+    status_text = (
+        "Statistically Significant"
+        if significant
+        else "Not Significant"
+    )
+    status_colour = "#DC2626" if significant else "#2563EB"
+    status_background = "#FEF2F2" if significant else "#EFF6FF"
+    status_border = "#FECACA" if significant else "#BFDBFE"
+
+    st.html(
+        f"""
+        <style>
+        .hypothesis-result-card {{
+            display:grid;
+            grid-template-columns:minmax(120px,0.55fr) 1px
+                                  minmax(120px,0.55fr) 1px
+                                  minmax(260px,1.7fr);
+            align-items:stretch;
+            gap:1rem;
+            background:#FFFFFF;
+            border:1px solid #E2E8F0;
+            border-radius:14px;
+            padding:0.95rem 1rem;
+            margin:-0.45rem 0 1.2rem 0;
+            box-shadow:0 5px 16px rgba(15,23,42,0.04);
+        }}
+
+        .hypothesis-result-metric {{
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+        }}
+
+        .hypothesis-result-label {{
+            color:#64748B;
+            font-size:0.72rem;
+            font-weight:800;
+            letter-spacing:0.04em;
+            text-transform:uppercase;
+        }}
+
+        .hypothesis-result-value {{
+            color:#0F172A;
+            font-size:1.35rem;
+            font-weight:850;
+            margin-top:0.22rem;
+            font-variant-numeric:tabular-nums;
+        }}
+
+        .hypothesis-result-divider {{
+            width:1px;
+            background:#E2E8F0;
+        }}
+
+        .hypothesis-result-conclusion {{
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+        }}
+
+        .hypothesis-result-statement {{
+            color:#475569;
+            font-size:0.80rem;
+            line-height:1.5;
+        }}
+
+        @media (max-width:800px) {{
+            .hypothesis-result-card {{
+                grid-template-columns:1fr 1fr;
+            }}
+
+            .hypothesis-result-divider {{
+                display:none;
+            }}
+
+            .hypothesis-result-conclusion {{
+                grid-column:1 / -1;
+            }}
+        }}
+        </style>
+
+        <div class="hypothesis-result-card">
+            <div class="hypothesis-result-metric">
+                <div class="hypothesis-result-label">{statistic_label}</div>
+                <div class="hypothesis-result-value">{statistic_value:.4f}</div>
+            </div>
+
+            <div class="hypothesis-result-divider"></div>
+
+            <div class="hypothesis-result-metric">
+                <div class="hypothesis-result-label">p-value</div>
+                <div class="hypothesis-result-value">{p_value:.4f}</div>
+            </div>
+
+            <div class="hypothesis-result-divider"></div>
+
+            <div class="hypothesis-result-conclusion">
+                <span style="
+                    display:inline-flex;
+                    width:max-content;
+                    align-items:center;
+                    background:{status_background};
+                    border:1px solid {status_border};
+                    color:{status_colour};
+                    border-radius:999px;
+                    padding:0.24rem 0.62rem;
+                    font-size:0.70rem;
+                    font-weight:800;
+                    margin-bottom:0.38rem;
+                ">
+                    {status_text}
+                </span>
+                <div class="hypothesis-result-statement">{statement}</div>
+            </div>
+        </div>
+        """
+    )
+
+def render_hypothesis_card(
+    number: int,
+    question: str,
+    null_hypothesis: str,
+    alternative_hypothesis: str,
+    test_name: str,
+    accent_colour: str = "#2563EB",
+    background_colour: str = "#EFF6FF"
+) -> None:
+    """Render one compact, aligned hypothesis definition."""
+
+    st.html(
+        f"""
+        <div style="
+            background:{background_colour};
+            border:1px solid #E2E8F0;
+            border-left:5px solid {accent_colour};
+            border-radius:14px;
+            padding:0.85rem 1rem;
+            margin-top:0.8rem;
+            box-shadow:0 4px 14px rgba(15,23,42,0.04);
+        ">
+            <div style="
+                color:{accent_colour};
+                font-size:0.67rem;
+                font-weight:850;
+                letter-spacing:0.08em;
+                margin-bottom:0.22rem;
+            ">
+                TEST {number}
+            </div>
+
+            <div style="
+                color:#0F172A;
+                font-size:0.96rem;
+                font-weight:800;
+                line-height:1.4;
+            ">
+                {question}
+            </div>
+
+            <div style="
+                color:#64748B;
+                font-size:0.74rem;
+                line-height:1.45;
+                margin-top:0.28rem;
+            ">
+                {test_name}
+            </div>
+        </div>
+        """
+    )
+
+    null_col, alternative_col = st.columns(2, gap="large")
+
+    with null_col:
+        st.caption("NULL HYPOTHESIS")
+        st.latex(null_hypothesis)
+
+    with alternative_col:
+        st.caption("ALTERNATIVE HYPOTHESIS")
+        st.latex(alternative_hypothesis)
+
+# ============================================================
+# Main Streamlit page
+# ============================================================
 
 def render_model_comparison():
     st.set_page_config(
@@ -29,44 +1794,332 @@ def render_model_comparison():
         layout="wide"
     )
 
-    st.markdown("""
-    <h1 style="
-        font-size:2.4rem;
-        font-weight:800;
-        color:#0F172A;
-        margin-bottom:0;
-    ">
-    Model Comparison
-    </h1>
-    """, unsafe_allow_html=True)
+    st.html(
+        """
+        <style>
+        .block-container {
+            max-width: 1500px;
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+        }
 
-    st.markdown("""
-    <p style="
-        font-size:1.02rem;
-        color:#64748B;
-        line-height:1.6;
-        margin-top:0.35rem;
-        margin-bottom:1.5rem;
-    ">
-    Evaluating the incremental value of stock, market and macroeconomic features
-    using walk-forward validation and portfolio backtesting.
-    </p>
-    """, unsafe_allow_html=True)
+        .model-hero {
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 88% 18%, rgba(124,58,237,0.16), transparent 28%),
+                radial-gradient(circle at 72% 108%, rgba(37,99,235,0.14), transparent 36%),
+                linear-gradient(135deg, #EFF6FF 0%, #F8FAFC 48%, #F5F3FF 100%);
+            border: 1px solid #DCE7F5;
+            border-radius: 22px;
+            padding: 1.75rem 1.9rem;
+            margin-bottom: 1.25rem;
+            box-shadow: 0 12px 34px rgba(37,99,235,0.08);
+        }
 
-    st.markdown("""
-    <div style="
-    background:#F8FAFC;
-    border:1px solid #CBD5E1;
-    padding:14px 18px;
-    border-radius:10px;
-    font-size:0.95rem;
-    color:#475569;
-    ">
-    ℹ️ All feature sets were evaluated using identical walk-forward splits and
-    portfolio construction rules.
-    </div>
-    """, unsafe_allow_html=True)
-    
+        .model-kicker {
+            display:inline-flex;
+            align-items:center;
+            gap:0.45rem;
+            background:rgba(255,255,255,0.82);
+            border:1px solid rgba(99,102,241,0.20);
+            border-radius:999px;
+            padding:0.38rem 0.72rem;
+            color:#4F46E5;
+            font-size:0.76rem;
+            font-weight:800;
+            letter-spacing:0.05em;
+            text-transform:uppercase;
+            margin-bottom:0.75rem;
+        }
+
+        .model-hero-title {
+            margin:0;
+            color:#0F172A;
+            font-size:2.25rem;
+            font-weight:850;
+            line-height:1.08;
+        }
+
+        .model-hero-description {
+            margin-top:0.65rem;
+            max-width:940px;
+            color:#52647A;
+            font-size:0.96rem;
+            line-height:1.62;
+        }
+
+        .model-tags {
+            display:flex;
+            flex-wrap:wrap;
+            gap:0.5rem;
+            margin-top:0.95rem;
+        }
+
+        .model-tag {
+            background:rgba(255,255,255,0.84);
+            border:1px solid #D8E4F2;
+            border-radius:999px;
+            padding:0.4rem 0.72rem;
+            color:#334155;
+            font-size:0.77rem;
+            font-weight:750;
+        }
+
+        .model-info-banner {
+            display:flex;
+            align-items:flex-start;
+            gap:0.7rem;
+            background:#F8FAFC;
+            border:1px solid #CBD5E1;
+            border-radius:14px;
+            padding:0.9rem 1rem;
+            color:#475569;
+            font-size:0.84rem;
+            line-height:1.5;
+            margin-bottom:1rem;
+        }
+
+        .model-info-icon {
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            flex:0 0 auto;
+            width:1.8rem;
+            height:1.8rem;
+            border-radius:999px;
+            background:#DBEAFE;
+            color:#1D4ED8;
+            font-weight:850;
+        }
+
+        
+        .comparison-section-header {
+            display:flex;
+            align-items:flex-start;
+            gap:0.7rem;
+            margin-top:1.75rem;
+            margin-bottom:0.8rem;
+        }
+
+        .comparison-section-icon {
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            width:2.15rem;
+            height:2.15rem;
+            flex:0 0 auto;
+            border-radius:12px;
+            background:#EFF6FF;
+            color:#2563EB;
+            font-size:1rem;
+            font-weight:850;
+        }
+
+        .comparison-section-title {
+            color:#0F172A;
+            font-size:1.25rem;
+            font-weight:850;
+            line-height:1.2;
+        }
+
+        .comparison-section-description {
+            color:#64748B;
+            font-size:0.83rem;
+            line-height:1.45;
+            margin-top:0.22rem;
+        }
+
+        .feature-set-banner {
+            display:flex;
+            align-items:center;
+            gap:0.8rem;
+            border-radius:17px;
+            padding:1rem 1.15rem;
+            margin:1rem 0 0.4rem 0;
+            box-shadow:0 6px 18px rgba(15,23,42,0.04);
+        }
+
+        .feature-stock-banner {
+            background:linear-gradient(135deg,#EFF6FF,#F8FAFC);
+            border:1px solid #BFDBFE;
+            border-left:5px solid #2563EB;
+        }
+
+        .feature-market-banner {
+            background:linear-gradient(135deg,#FEF2F2,#FFF7ED);
+            border:1px solid #FECACA;
+            border-left:5px solid #EF4444;
+        }
+
+        .feature-set-icon {
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            width:2.35rem;
+            height:2.35rem;
+            border-radius:999px;
+            background:rgba(255,255,255,0.75);
+            font-size:1.05rem;
+        }
+
+        .feature-set-title {
+            color:#0F172A;
+            font-size:1.02rem;
+            font-weight:850;
+        }
+
+        .feature-set-description {
+            color:#64748B;
+            font-size:0.80rem;
+            line-height:1.45;
+            margin-top:0.2rem;
+        }
+
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            border-radius:18px;
+            box-shadow:0 7px 22px rgba(15,23,42,0.045);
+        }
+
+        div[data-testid="stPlotlyChart"] {
+            border-radius:14px;
+        }
+
+        div[data-testid="stTabs"] {
+            margin-top:1rem;
+        }
+
+        div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+            gap:0.4rem;
+            border-bottom:1px solid #E2E8F0;
+        }
+
+        div[data-testid="stTabs"] button[role="tab"] {
+            border:1px solid #E2E8F0;
+            border-bottom:none;
+            border-radius:12px 12px 0 0;
+            padding:0.65rem 1rem;
+            background:#F8FAFC;
+        }
+
+        div[data-testid="stTabs"] button[aria-selected="true"] {
+            background:#EFF6FF;
+            border-color:#BFDBFE;
+            color:#1D4ED8;
+        }
+
+
+        .model-candidate-grid {
+            display:grid;
+            grid-template-columns:repeat(3,minmax(0,1fr));
+            gap:0.9rem;
+            margin:0.9rem 0 1.35rem 0;
+        }
+
+        .model-candidate-card {
+            --candidate-accent:#2563EB;
+            --candidate-soft:#DBEAFE;
+            position:relative;
+            overflow:hidden;
+            min-height:165px;
+            height:165px;
+            box-sizing:border-box;
+            border:1px solid color-mix(
+                in srgb,
+                var(--candidate-accent) 24%,
+                #E2E8F0
+            );
+            border-radius:17px;
+            background:linear-gradient(
+                145deg,
+                #FFFFFF 0%,
+                var(--candidate-soft) 165%
+            );
+            padding:1rem 1.05rem;
+            box-shadow:0 7px 22px rgba(15,23,42,0.045);
+        }
+
+        .model-candidate-card::before {
+            content:"";
+            position:absolute;
+            inset:0 0 auto 0;
+            height:5px;
+            background:var(--candidate-accent);
+        }
+
+        .candidate-dt {
+            --candidate-accent:#F59E0B;
+            --candidate-soft:#FEF3C7;
+        }
+
+        .candidate-lgbm {
+            --candidate-accent:#10B981;
+            --candidate-soft:#D1FAE5;
+        }
+
+        .candidate-xgb {
+            --candidate-accent:#2563EB;
+            --candidate-soft:#DBEAFE;
+        }
+
+        .candidate-name {
+            color:var(--candidate-accent);
+            font-size:0.98rem;
+            font-weight:850;
+            margin-bottom:0.45rem;
+        }
+
+        .candidate-description {
+            color:#475569;
+            font-size:0.80rem;
+            line-height:1.5;
+        }
+
+        div[data-testid="stTabs"] button {
+            font-weight:750;
+        }
+
+        @media (max-width:900px) {
+            .model-candidate-grid {
+                grid-template-columns:1fr;
+            }
+
+            .model-hero-title {
+                font-size:1.8rem;
+            }
+        }
+        </style>
+
+        <div class="model-hero">
+            <div class="model-kicker">● Model evaluation</div>
+            <h1 class="model-hero-title">Model Comparison</h1>
+
+            <div class="model-hero-description">
+                Compare Decision Tree, LightGBM and XGBoost across stock-only
+                and stock-plus-market feature sets using identical walk-forward
+                validation, portfolio construction and transaction-cost rules.
+            </div>
+
+            <div class="model-tags">
+                <span class="model-tag">Decision Tree</span>
+                <span class="model-tag">LightGBM</span>
+                <span class="model-tag">XGBoost</span>
+                <span class="model-tag">Walk-Forward Validated</span>
+                <span class="model-tag">Prediction &amp; Portfolio Analytics</span>
+            </div>
+        </div>
+
+        <div class="model-info-banner">
+            <div class="model-info-icon">i</div>
+            <div>
+                All models were evaluated using identical expanding-window
+                splits, prediction horizons, transaction-cost assumptions and
+                portfolio construction rules.
+            </div>
+        </div>
+        """
+    )
+
     # ------------------------------------------------------------
     # OVERALL RECOMMENDATION
     # ------------------------------------------------------------
@@ -91,12 +2144,6 @@ def render_model_comparison():
             "dark": "#B91C1C",
             "background": "#FEF2F2",
             "border": "#FECACA"
-        },
-        "Stock + Market + Macro": {
-            "accent": "#7C3AED",
-            "dark": "#5B21B6",
-            "background": "#F5F3FF",
-            "border": "#DDD6FE"
         }
     }
 
@@ -142,8 +2189,8 @@ def render_model_comparison():
         ),
         (
             "Efficient complexity",
-            "It captured broader market conditions without the additional "
-            "dimensionality and noise introduced by macroeconomic variables."
+            "It captured broader market conditions while retaining a compact and "
+            "interpretable feature set."
         )
     ]
 
@@ -429,11 +2476,40 @@ def render_model_comparison():
         unsafe_allow_html=True
     )
 
-    stock_tab, market_tab, macro_tab = st.tabs(
+    st.html(
+        """
+        <div class="model-candidate-grid">
+            <div class="model-candidate-card candidate-dt">
+                <div class="candidate-name">Decision Tree</div>
+                <div class="candidate-description">
+                    Transparent nonlinear baseline with straightforward
+                    interpretation and low model complexity.
+                </div>
+            </div>
+
+            <div class="model-candidate-card candidate-lgbm">
+                <div class="candidate-name">LightGBM</div>
+                <div class="candidate-description">
+                    Leaf-wise gradient boosting designed to capture nonlinear
+                    feature interactions efficiently.
+                </div>
+            </div>
+
+            <div class="model-candidate-card candidate-xgb">
+                <div class="candidate-name">XGBoost</div>
+                <div class="candidate-description">
+                    Regularised gradient boosting with robust optimisation and
+                    strong cross-sectional ranking capacity.
+                </div>
+            </div>
+        </div>
+        """
+    )
+
+    stock_tab, market_tab = st.tabs(
         [
             "📈 Stock Features",
-            "🌐 Stock + Market",
-            "🏦 Stock + Market + Macro"
+            "🌐 Stock + Market"
         ]
     )
 
@@ -446,7 +2522,6 @@ def render_model_comparison():
     feature_sets = {
         "stock": "final_portfolio_stock.parquet",
         "market": "final_portfolio_market.parquet",
-        "macro_market": "final_portfolio_macro_market.parquet",
     }
 
     results = {}
@@ -468,15 +2543,17 @@ def render_model_comparison():
                 "hit": hit
             }
 
-    print(results["dt"]["macro_market"]["ic"])
 
     hit_contingency_tables = {}
     for feature_name in feature_sets:
-        lightgbm_hit = results["dt"][feature_name]["hit"]
-        xgboost_hit = results["lightgbm"][feature_name]["hit"]
+        decision_tree_hit = results["dt"][feature_name]["hit"]
+        lightgbm_hit = results["lightgbm"][feature_name]["hit"]
 
         hit_contingency_tables[feature_name] = (
-            get_hit_contingency_table(lightgbm_hit, xgboost_hit).to_numpy()
+            get_hit_contingency_table(
+                decision_tree_hit,
+                lightgbm_hit
+            ).to_numpy()
         )
         
 
@@ -493,11 +2570,11 @@ def render_model_comparison():
 
     pipeline_market = ModelHypothesisTest(
         alpha=0.05,
-        dt_ic=results["dt"]["stock"]["ic"],
+        dt_ic=results["dt"]["market"]["ic"],
         xgboost_ic=results["xgboost"]["market"]["ic"],
         lgbm_ic=results["lightgbm"]["market"]["ic"], 
         hit_contingency_table=hit_contingency_tables["market"],
-        dt_returns=results["dt"]["stock"]["returns"]["portfolio_return"],
+        dt_returns=results["dt"]["market"]["returns"]["portfolio_return"],
         lightgbm_returns=results["lightgbm"]["market"]["returns"]["portfolio_return"], 
         xgboost_returns=results["xgboost"]["market"]["returns"]["portfolio_return"]
     )
@@ -527,76 +2604,58 @@ def render_model_comparison():
             xgboost_returns=results["xgboost"]["stock"]["returns"]
         )
         
-        st.write("#### Portfolio Performance")
-        st.caption(
-            """
-            Evaluate the performance of the selected strategy using cumulative returns,
-            risk-adjusted performance metrics, and benchmark comparisons over the
-            backtesting period.
-            """
-        )
         
-        st.write("#### Hypothesis Testing")
-        st.caption(
-        """
-            Statistical tests assessing whether differences in predictive quality,
-            portfolio performance and feature-set value are greater than expected
-            from random variation.
-        """
+        render_section_header(
+            icon="⚖",
+            title="Statistical Hypothesis Tests",
+            description=(
+                "Test whether LightGBM significantly improves upon the Decision Tree "
+                "baseline across ranking quality, directional accuracy, "
+                "weekly returns and Sharpe ratio."
+            )
         )
 
         
         render_hypothesis_card(
             number=1,
-            question="Does XGBoost produce a higher mean weekly IC than LightGBM?",
+            question="Does LightGBM produce a higher mean weekly IC than the Decision Tree?",
             null_hypothesis=(
-                r"H_0:\ \mu_{IC,\mathrm{XGB}}"
+                r"H_0:\ \mu_{IC,\mathrm{LGBM}}"
                 r"\leq"
-                r"\mu_{IC,\mathrm{LGBM}}"
+                r"\mu_{IC,\mathrm{DT}}"
             ),
             alternative_hypothesis=(
-                r"H_1:\ \mu_{IC,\mathrm{XGB}}"
+                r"H_1:\ \mu_{IC,\mathrm{LGBM}}"
                 r">"
-                r"\mu_{IC,\mathrm{LGBM}}"
+                r"\mu_{IC,\mathrm{DT}}"
             ),
             test_name="One-sided paired t-test on aligned weekly IC observations.",
             accent_colour="#2563EB",
             background_colour="#EFF6FF"
         )
         
-        t_stat, p_value, statement = pipeline_stock.mean_weekly_ic("Decision Trees", "LightGBM")
+        t_stat, p_value, statement = pipeline_stock.mean_weekly_ic()
         
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.metric(
-                label="t-statistic",
-                value=f"{t_stat:.4f}"
-            )
-
-        with col2:
-            st.metric(
-                label="p-value",
-                value=f"{p_value:.4f}"
-            )
-
-        if p_value < pipeline_stock.alpha:
-            st.success(statement)
-        else:
-            st.info(statement)
+        render_hypothesis_result(
+            statistic_label="t-statistic",
+            statistic_value=t_stat,
+            p_value=p_value,
+            statement=statement,
+            alpha=pipeline_stock.alpha
+        )
 
         render_hypothesis_card(
             number=2,
-            question="Do LightGBM and XGBoost have different directional hit rates?",
+            question="Do Decision Tree and LightGBM have different directional hit rates?",
             null_hypothesis=(
-                r"H_0:\ p_{\mathrm{hit,LGBM}}"
+                r"H_0:\ p_{\mathrm{hit,DT}}"
                 r"="
-                r"p_{\mathrm{hit,XGB}}"
+                r"p_{\mathrm{hit,LGBM}}"
             ),
             alternative_hypothesis=(
-                r"H_1:\ p_{\mathrm{hit,LGBM}}"
-                r"\neq"
-                r"p_{\mathrm{hit,XGB}}"
+                r"H_1:\ p_{\mathrm{hit,DT}}"
+                r"\neq "
+                r"p_{\mathrm{hit,LGBM}}"
             ),
             test_name="McNemar test on paired correct and incorrect predictions.",
             accent_colour="#7C3AED",
@@ -605,76 +2664,54 @@ def render_model_comparison():
         
         chi_squared_stat, p_value, statement = pipeline_stock.mcnemar_test()
         
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.metric(
-                label="t-statistic",
-                value=f"{chi_squared_stat:.4f}"
-            )
-
-        with col2:
-            st.metric(
-                label="p-value",
-                value=f"{p_value:.4f}"
-            )
-
-        if p_value < pipeline_stock.alpha:
-            st.success(statement)
-        else:
-            st.info(statement)
+        render_hypothesis_result(
+            statistic_label="χ² statistic",
+            statistic_value=chi_squared_stat,
+            p_value=p_value,
+            statement=statement,
+            alpha=pipeline_stock.alpha
+        )
 
         render_hypothesis_card(
             number=3,
-            question="Do LightGBM and XGBoost produce different mean weekly portfolio returns?",
+            question="Does LightGBM produce a higher mean weekly portfolio return than the Decision Tree?",
             null_hypothesis=(
                 r"H_0:\ \mu_{r,\mathrm{LGBM}}"
-                r"="
-                r"\mu_{r,\mathrm{XGB}}"
+                r"\leq"
+                r"\mu_{r,\mathrm{DT}}"
             ),
             alternative_hypothesis=(
                 r"H_1:\ \mu_{r,\mathrm{LGBM}}"
-                r"\neq"
-                r"\mu_{r,\mathrm{XGB}}"
+                r">"
+                r"\mu_{r,\mathrm{DT}}"
             ),
-            test_name="Two-sided paired t-test on aligned weekly portfolio returns.",
+            test_name="One-sided paired t-test on aligned weekly portfolio returns.",
             accent_colour="#10B981",
             background_colour="#F0FDF4"
         )
         
-        t_stat, p_value, statement = pipeline_stock.portfolio_returns_test("Decision Trees", "LightGBM")
+        t_stat, p_value, statement = pipeline_stock.portfolio_returns_test()
         
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.metric(
-                label="t-statistic",
-                value=f"{t_stat:.4f}"
-            )
-
-        with col2:
-            st.metric(
-                label="p-value",
-                value=f"{p_value:.4f}"
-            )
-
-        if p_value < pipeline_stock.alpha:
-            st.success(statement)
-        else:
-            st.info(statement)
+        render_hypothesis_result(
+            statistic_label="t-statistic",
+            statistic_value=t_stat,
+            p_value=p_value,
+            statement=statement,
+            alpha=pipeline_stock.alpha
+        )
 
         render_hypothesis_card(
             number=4,
-            question="Does LightGBM achieve a higher Sharpe ratio than XGBoost?",
+            question="Does LightGBM achieve a higher Sharpe ratio than the Decision Tree?",
             null_hypothesis=(
                 r"H_0:\ SR_{\mathrm{LGBM}}"
                 r"\leq "
-                r"SR_{\mathrm{XGB}}"
+                r"SR_{\mathrm{DT}}"
             ),
             alternative_hypothesis=(
                 r"H_1:\ SR_{\mathrm{LGBM}}"
                 r">"
-                r"SR_{\mathrm{XGB}}"
+                r"SR_{\mathrm{DT}}"
             ),
             test_name=(
                 "One-sided Sharpe-ratio difference test using the "
@@ -685,7 +2722,28 @@ def render_model_comparison():
         )
         
         results_dict = pipeline_stock.sharpe_ratio_test()
-        print(results_dict)
+
+        if isinstance(results_dict, dict):
+            z_statistic = results_dict.get(
+                "z_statistic",
+                results_dict.get(
+                    "test_statistic",
+                    results_dict.get("z", float("nan"))
+                )
+            )
+            sharpe_p_value = results_dict.get("p_value", float("nan"))
+            sharpe_statement = results_dict.get(
+                "statement",
+                "See the reported p-value for the Sharpe-ratio comparison."
+            )
+
+            render_hypothesis_result(
+                statistic_label="z-statistic",
+                statistic_value=z_statistic,
+                p_value=sharpe_p_value,
+                statement=sharpe_statement,
+                alpha=pipeline_stock.alpha
+            )
         
         selected_model = "LightGBM"
 
@@ -927,66 +2985,56 @@ def render_model_comparison():
             xgboost_returns=results["xgboost"]["market"]["returns"]
         )
         
-        st.write("#### Hypothesis Testing")
-        st.caption(
-        """
-            Statistical tests assessing whether differences in predictive quality,
-            portfolio performance and feature-set value are greater than expected
-            from random variation.
-        """
+        render_section_header(
+            icon="⚖",
+            title="Statistical Hypothesis Tests",
+            description=(
+                "Test whether LightGBM significantly improves upon the Decision Tree "
+                "baseline across ranking quality, directional accuracy, "
+                "weekly returns and Sharpe ratio."
+            )
         )
         
         render_hypothesis_card(
             number=1,
-            question="Does XGBoost produce a higher mean weekly IC than LightGBM?",
+            question="Does LightGBM produce a higher mean weekly IC than the Decision Tree?",
             null_hypothesis=(
-                r"H_0:\ \mu_{IC,\mathrm{XGB}}"
+                r"H_0:\ \mu_{IC,\mathrm{LGBM}}"
                 r"\leq "
-                r"\mu_{IC,\mathrm{LGBM}}"
+                r"\mu_{IC,\mathrm{DT}}"
             ),
             alternative_hypothesis=(
-                r"H_1:\ \mu_{IC,\mathrm{XGB}}"
+                r"H_1:\ \mu_{IC,\mathrm{LGBM}}"
                 r">"
-                r"\mu_{IC,\mathrm{LGBM}}"
+                r"\mu_{IC,\mathrm{DT}}"
             ),
             test_name="One-sided paired t-test on aligned weekly IC observations.",
             accent_colour="#2563EB",
             background_colour="#EFF6FF"
         )
         
-        t_stat, p_value, statement = pipeline_market.mean_weekly_ic("Decision Trees", "LightGBM")
+        t_stat, p_value, statement = pipeline_market.mean_weekly_ic()
         
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.metric(
-                label="t-statistic",
-                value=f"{t_stat:.4f}"
-            )
-
-        with col2:
-            st.metric(
-                label="p-value",
-                value=f"{p_value:.4f}"
-            )
-
-        if p_value < pipeline_market.alpha:
-            st.success(statement)
-        else:
-            st.info(statement)
+        render_hypothesis_result(
+            statistic_label="t-statistic",
+            statistic_value=t_stat,
+            p_value=p_value,
+            statement=statement,
+            alpha=pipeline_market.alpha
+        )
 
         render_hypothesis_card(
             number=2,
-            question="Do LightGBM and XGBoost have different directional hit rates?",
+            question="Do Decision Tree and LightGBM have different directional hit rates?",
             null_hypothesis=(
-                r"H_0:\ p_{\mathrm{hit,LGBM}}"
+                r"H_0:\ p_{\mathrm{hit,DT}}"
                 r"="
-                r"p_{\mathrm{hit,XGB}}"
+                r"p_{\mathrm{hit,LGBM}}"
             ),
             alternative_hypothesis=(
-                r"H_1:\ p_{\mathrm{hit,LGBM}}"
+                r"H_1:\ p_{\mathrm{hit,DT}}"
                 r"\neq "
-                r"p_{\mathrm{hit,XGB}}"
+                r"p_{\mathrm{hit,LGBM}}"
             ),
             test_name="McNemar test on paired correct and incorrect predictions.",
             accent_colour="#7C3AED",
@@ -995,76 +3043,54 @@ def render_model_comparison():
         
         chi_squared_stat, p_value, statement = pipeline_market.mcnemar_test()
         
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.metric(
-                label="t-statistic",
-                value=f"{chi_squared_stat:.4f}"
-            )
-
-        with col2:
-            st.metric(
-                label="p-value",
-                value=f"{p_value:.4f}"
-            )
-
-        if p_value < pipeline_market.alpha:
-            st.success(statement)
-        else:
-            st.info(statement)
+        render_hypothesis_result(
+            statistic_label="χ² statistic",
+            statistic_value=chi_squared_stat,
+            p_value=p_value,
+            statement=statement,
+            alpha=pipeline_market.alpha
+        )
 
         render_hypothesis_card(
             number=3,
-            question="Do LightGBM and XGBoost produce different mean weekly portfolio returns?",
+            question="Does LightGBM produce a higher mean weekly portfolio return than the Decision Tree?",
             null_hypothesis=(
                 r"H_0:\ \mu_{r,\mathrm{LGBM}}"
-                r"="
-                r"\mu_{r,\mathrm{XGB}}"
+                r"\leq"
+                r"\mu_{r,\mathrm{DT}}"
             ),
             alternative_hypothesis=(
                 r"H_1:\ \mu_{r,\mathrm{LGBM}}"
-                r"\neq "
-                r"\mu_{r,\mathrm{XGB}}"
+                r">"
+                r"\mu_{r,\mathrm{DT}}"
             ),
-            test_name="Two-sided paired t-test on aligned weekly portfolio returns.",
+            test_name="One-sided paired t-test on aligned weekly portfolio returns.",
             accent_colour="#10B981",
             background_colour="#F0FDF4"
         )
         
-        t_stat, p_value, statement = pipeline_market.portfolio_returns_test("Decision Trees", "LightGBM")
+        t_stat, p_value, statement = pipeline_market.portfolio_returns_test()
         
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.metric(
-                label="t-statistic",
-                value=f"{t_stat:.4f}"
-            )
-
-        with col2:
-            st.metric(
-                label="p-value",
-                value=f"{p_value:.4f}"
-            )
-
-        if p_value < pipeline_market.alpha:
-            st.success(statement)
-        else:
-            st.info(statement)
+        render_hypothesis_result(
+            statistic_label="t-statistic",
+            statistic_value=t_stat,
+            p_value=p_value,
+            statement=statement,
+            alpha=pipeline_market.alpha
+        )
 
         render_hypothesis_card(
             number=4,
-            question="Does LightGBM achieve a higher Sharpe ratio than XGBoost?",
+            question="Does LightGBM achieve a higher Sharpe ratio than the Decision Tree?",
             null_hypothesis=(
                 r"H_0:\ SR_{\mathrm{LGBM}}"
                 r"\leq "
-                r"SR_{\mathrm{XGB}}"
+                r"SR_{\mathrm{DT}}"
             ),
             alternative_hypothesis=(
                 r"H_1:\ SR_{\mathrm{LGBM}}"
                 r">"
-                r"SR_{\mathrm{XGB}}"
+                r"SR_{\mathrm{DT}}"
             ),
             test_name=(
                 "One-sided Sharpe-ratio difference test using the "
@@ -1075,7 +3101,28 @@ def render_model_comparison():
         )
         
         results_dict = pipeline_market.sharpe_ratio_test()
-        print(results_dict)
+
+        if isinstance(results_dict, dict):
+            z_statistic = results_dict.get(
+                "z_statistic",
+                results_dict.get(
+                    "test_statistic",
+                    results_dict.get("z", float("nan"))
+                )
+            )
+            sharpe_p_value = results_dict.get("p_value", float("nan"))
+            sharpe_statement = results_dict.get(
+                "statement",
+                "See the reported p-value for the Sharpe-ratio comparison."
+            )
+
+            render_hypothesis_result(
+                statistic_label="z-statistic",
+                statistic_value=z_statistic,
+                p_value=sharpe_p_value,
+                statement=sharpe_statement,
+                alpha=pipeline_market.alpha
+            )
         
         st.markdown(
             """
@@ -1260,6 +3307,3 @@ def render_model_comparison():
         )
 
         st.markdown(conclusion_html, unsafe_allow_html=True)
-
-    with macro_tab:
-        st.write("hello")

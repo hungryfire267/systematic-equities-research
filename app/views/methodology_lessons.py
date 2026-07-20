@@ -27,53 +27,110 @@ def render_methodology_lessons() -> None:
         """
         <style>
         .block-container {
-            padding-top: 1.4rem;
-            padding-bottom: 2.5rem;
-            max-width: 1600px;
+            max-width: 1500px;
+            padding-top: 2rem;
+            padding-bottom: 3rem;
         }
 
         .methodology-hero {
-            background: linear-gradient(
-                135deg,
-                #F8FAFC 0%,
-                #EFF6FF 100%
-            );
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 88% 18%, rgba(124,58,237,0.16), transparent 28%),
+                radial-gradient(circle at 72% 108%, rgba(37,99,235,0.14), transparent 36%),
+                linear-gradient(135deg, #EFF6FF 0%, #F8FAFC 48%, #F5F3FF 100%);
             border: 1px solid #DCE7F5;
-            border-radius: 18px;
-            padding: 1.65rem 1.75rem;
-            margin-bottom: 1.4rem;
+            border-radius: 22px;
+            padding: 1.75rem 1.9rem;
+            margin-bottom: 1.25rem;
+            box-shadow: 0 12px 34px rgba(37,99,235,0.08);
         }
 
         .methodology-hero-title {
             color: #0F172A;
-            font-size: 2rem;
-            font-weight: 800;
-            line-height: 1.15;
-            margin-bottom: 0.55rem;
+            font-size: 2.25rem;
+            font-weight: 850;
+            line-height: 1.08;
+            margin: 0;
         }
 
         .methodology-hero-subtitle {
-            color: #475569;
-            font-size: 0.98rem;
-            line-height: 1.7;
-            max-width: 1100px;
-            margin: 0;
+            color: #52647A;
+            font-size: 0.96rem;
+            line-height: 1.65;
+            max-width: 980px;
+            margin-top: 0.7rem;
+            margin-bottom: 0;
+        }
+
+        .methodology-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            background: rgba(255,255,255,0.82);
+            border: 1px solid rgba(99,102,241,0.20);
+            border-radius: 999px;
+            padding: 0.38rem 0.72rem;
+            color: #4F46E5;
+            font-size: 0.76rem;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 0.75rem;
+        }
+
+        .methodology-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.95rem;
+        }
+
+        .methodology-tag {
+            background: rgba(255,255,255,0.84);
+            border: 1px solid #D8E4F2;
+            border-radius: 999px;
+            padding: 0.4rem 0.72rem;
+            color: #334155;
+            font-size: 0.77rem;
+            font-weight: 750;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.7rem;
+            margin-top: 1.8rem;
+            margin-bottom: 0.8rem;
+        }
+
+        .section-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.15rem;
+            height: 2.15rem;
+            border-radius: 12px;
+            background: #EFF6FF;
+            color: #2563EB;
+            font-size: 1rem;
+            flex: 0 0 auto;
         }
 
         .section-heading {
             color: #0F172A;
-            font-size: 1.35rem;
-            font-weight: 800;
-            margin-top: 1.5rem;
-            margin-bottom: 0.75rem;
+            font-size: 1.25rem;
+            font-weight: 850;
+            line-height: 1.2;
+            margin: 0;
         }
 
         .section-subheading {
             color: #64748B;
-            font-size: 0.91rem;
-            line-height: 1.55;
-            margin-top: -0.35rem;
-            margin-bottom: 1rem;
+            font-size: 0.83rem;
+            line-height: 1.45;
+            margin-top: 0.22rem;
+            margin-bottom: 0;
         }
 
         .content-card {
@@ -83,6 +140,33 @@ def render_methodology_lessons() -> None:
             padding: 1.25rem 1.3rem;
             height: 100%;
             box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+        }
+
+
+        .developed-card {
+            min-height: 285px;
+            height: 285px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .developed-card .content-card-text {
+            flex: 1;
+            overflow-wrap: anywhere;
+        }
+
+        .feature-card {
+            min-height: 195px;
+            height: 195px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .feature-card .content-card-text {
+            flex: 1;
+            overflow-wrap: anywhere;
         }
 
         .content-card-title {
@@ -112,13 +196,38 @@ def render_methodology_lessons() -> None:
         }
 
         .workflow-card {
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 16px;
+            --workflow-accent: #2563EB;
+            --workflow-soft: #DBEAFE;
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(145deg, #FFFFFF 0%, var(--workflow-soft) 170%);
+            border: 1px solid color-mix(in srgb, var(--workflow-accent) 22%, #E2E8F0);
+            border-radius: 18px;
             padding: 1.15rem;
-            height: 100%;
-            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+            min-height: 265px;
+            height: 265px;
+            display: flex;
+            flex-direction: column;
+            overflow: visible;
+            box-shadow: 0 7px 22px rgba(15,23,42,0.045);
         }
+
+        .workflow-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 5px;
+            background: var(--workflow-accent);
+        }
+
+        .workflow-card-1 { --workflow-accent: #2563EB; --workflow-soft: #DBEAFE; }
+        .workflow-card-2 { --workflow-accent: #0891B2; --workflow-soft: #CFFAFE; }
+        .workflow-card-3 { --workflow-accent: #7C3AED; --workflow-soft: #EDE9FE; }
+        .workflow-card-4 { --workflow-accent: #059669; --workflow-soft: #D1FAE5; }
+        .workflow-card-5 { --workflow-accent: #EA580C; --workflow-soft: #FFEDD5; }
+        .workflow-card-6 { --workflow-accent: #0D9488; --workflow-soft: #CCFBF1; }
+        .workflow-card-7 { --workflow-accent: #DC2626; --workflow-soft: #FEE2E2; }
+        .workflow-card-8 { --workflow-accent: #4F46E5; --workflow-soft: #E0E7FF; }
 
         .workflow-number {
             display: inline-flex;
@@ -127,8 +236,8 @@ def render_methodology_lessons() -> None:
             width: 2rem;
             height: 2rem;
             border-radius: 999px;
-            background: #DBEAFE;
-            color: #1D4ED8;
+            background: var(--workflow-soft);
+            color: var(--workflow-accent);
             font-weight: 800;
             font-size: 0.88rem;
             margin-bottom: 0.65rem;
@@ -143,8 +252,11 @@ def render_methodology_lessons() -> None:
 
         .workflow-description {
             color: #64748B;
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             line-height: 1.55;
+            flex: 1;
+            overflow-wrap: anywhere;
+            word-break: normal;
         }
 
         .decision-card {
@@ -169,11 +281,14 @@ def render_methodology_lessons() -> None:
         }
 
         .achievement-card {
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 15px;
+            background: linear-gradient(145deg, #FFFFFF 0%, #EFF6FF 150%);
+            border: 1px solid #BFDBFE;
+            border-radius: 16px;
             padding: 1rem 1.05rem;
-            height: 100%;
+            min-height: 175px;
+            height: 175px;
+            box-shadow: 0 7px 22px rgba(15,23,42,0.045);
+            overflow: visible;
         }
 
         .achievement-label {
@@ -190,11 +305,14 @@ def render_methodology_lessons() -> None:
         }
 
         .limitation-card {
-            background: #FFFBEB;
+            background: linear-gradient(145deg, #FFFFFF 0%, #FFFBEB 150%);
             border: 1px solid #FDE68A;
-            border-radius: 16px;
+            border-radius: 17px;
             padding: 1.15rem 1.2rem;
-            height: 100%;
+            min-height: 345px;
+            height: 345px;
+            box-shadow: 0 7px 22px rgba(15,23,42,0.045);
+            overflow: visible;
         }
 
         .limitation-title {
@@ -206,16 +324,21 @@ def render_methodology_lessons() -> None:
 
         .limitation-text {
             color: #78350F;
-            font-size: 0.86rem;
-            line-height: 1.62;
+            font-size: 0.84rem;
+            line-height: 1.58;
+            overflow-wrap: anywhere;
+            word-break: normal;
         }
 
         .lesson-card {
-            background: #F0FDF4;
+            background: linear-gradient(145deg, #FFFFFF 0%, #F0FDF4 150%);
             border: 1px solid #BBF7D0;
-            border-radius: 16px;
-            padding: 1.2rem 1.25rem;
-            height: 100%;
+            border-radius: 17px;
+            padding: 1.15rem 1.2rem;
+            min-height: 235px;
+            height: 235px;
+            box-shadow: 0 7px 22px rgba(15,23,42,0.045);
+            overflow: visible;
         }
 
         .lesson-title {
@@ -227,16 +350,21 @@ def render_methodology_lessons() -> None:
 
         .lesson-text {
             color: #166534;
-            font-size: 0.86rem;
-            line-height: 1.63;
+            font-size: 0.84rem;
+            line-height: 1.58;
+            overflow-wrap: anywhere;
+            word-break: normal;
         }
 
         .future-card {
-            background: #F8FAFC;
+            background: linear-gradient(145deg, #FFFFFF 0%, #F8FAFC 150%);
             border: 1px solid #CBD5E1;
-            border-radius: 16px;
-            padding: 1.2rem 1.25rem;
-            height: 100%;
+            border-radius: 17px;
+            padding: 1.15rem 1.2rem;
+            min-height: 390px;
+            height: 390px;
+            box-shadow: 0 7px 22px rgba(15,23,42,0.045);
+            overflow: visible;
         }
 
         .future-title {
@@ -248,8 +376,10 @@ def render_methodology_lessons() -> None:
 
         .future-text {
             color: #475569;
-            font-size: 0.87rem;
-            line-height: 1.62;
+            font-size: 0.82rem;
+            line-height: 1.52;
+            overflow-wrap: anywhere;
+            word-break: normal;
         }
 
         .status-card {
@@ -302,6 +432,47 @@ def render_methodology_lessons() -> None:
             font-size: 0.82rem;
             font-weight: 650;
         }
+
+        div[data-testid="stHorizontalBlock"] {
+            align-items: stretch;
+        }
+
+        div[data-testid="column"] > div {
+            height: 100%;
+        }
+
+        .workflow-card p,
+        .achievement-card p,
+        .limitation-card p,
+        .lesson-card p,
+        .future-card p {
+            margin: 0;
+        }
+
+        .workflow-title,
+        .achievement-label,
+        .limitation-title,
+        .lesson-title,
+        .future-title {
+            overflow-wrap: anywhere;
+        }
+
+        @media (max-width: 1000px) {
+            .workflow-card,
+            .achievement-card,
+            .limitation-card,
+            .lesson-card,
+            .future-card,
+            .developed-card,
+            .feature-card {
+                height: auto;
+                min-height: 0;
+            }
+
+            .methodology-hero-title {
+                font-size: 1.8rem;
+            }
+        }
         </style>
         """
     )
@@ -313,19 +484,27 @@ def render_methodology_lessons() -> None:
     render_html(
         """
         <div class="methodology-hero">
+            <div class="methodology-kicker">● Technical project documentation</div>
             <div class="methodology-hero-title">
-                Methodology, Lessons & Future Research
+                Methodology, Lessons &amp; Future Research
             </div>
 
             <p class="methodology-hero-subtitle">
-                A comprehensive overview of the design, development and
-                evaluation of the Systematic ASX Equities Alpha Generation
-                Platform. The project integrates market-data engineering,
-                quantitative feature development, machine-learning modelling,
-                walk-forward validation, long–short portfolio construction,
-                backtesting and interactive cloud-based reporting within one
-                end-to-end research workflow.
+                A comprehensive technical overview of the Systematic ASX
+                Equities Alpha Generation Platform, covering the full research
+                lifecycle from market-data acquisition and feature engineering
+                through model validation, portfolio construction, backtesting,
+                deployment, lessons learned and future research directions.
             </p>
+
+            <div class="methodology-tags">
+                <span class="methodology-tag">Data Engineering</span>
+                <span class="methodology-tag">Feature Research</span>
+                <span class="methodology-tag">Machine Learning</span>
+                <span class="methodology-tag">Portfolio Construction</span>
+                <span class="methodology-tag">Backtesting</span>
+                <span class="methodology-tag">Cloud Deployment</span>
+            </div>
         </div>
         """
     )
@@ -335,7 +514,15 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Project Objective</div>'
+        """
+        <div class="section-header">
+            <div class="section-icon">◎</div>
+            <div>
+                <div class="section-heading">Project Objective</div>
+                <div class="section-subheading">Research objective, investment question and portfolio design.</div>
+            </div>
+        </div>
+        """
     )
 
     render_html(
@@ -370,17 +557,18 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">End-to-End Methodology</div>'
-    )
-
-    render_html(
         """
-        <div class="section-subheading">
-            The platform was developed as a modular pipeline, with each stage
-            producing reusable datasets or outputs for subsequent components.
+        <div class="section-header">
+            <div class="section-icon">↻</div>
+            <div>
+                <div class="section-heading">End-to-End Methodology</div>
+                <div class="section-subheading">The complete modular workflow from raw market data to interactive reporting.</div>
+            </div>
         </div>
         """
     )
+
+
 
     methodology_steps = [
         (
@@ -437,7 +625,7 @@ def render_methodology_lessons() -> None:
             with columns[offset]:
                 render_html(
                     f"""
-                    <div class="workflow-card">
+                    <div class="workflow-card workflow-card-{start_index + offset + 1}">
                         <div class="workflow-number">
                             {start_index + offset + 1}
                         </div>
@@ -460,7 +648,15 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">What Was Developed</div>'
+        """
+        <div class="section-header">
+            <div class="section-icon">◫</div>
+            <div>
+                <div class="section-heading">What Was Developed</div>
+                <div class="section-subheading">Major engineering, modelling, portfolio and reporting components delivered.</div>
+            </div>
+        </div>
+        """
     )
 
     developed_columns_1 = st.columns(2)
@@ -468,7 +664,7 @@ def render_methodology_lessons() -> None:
     with developed_columns_1[0]:
         render_html(
             """
-            <div class="content-card">
+            <div class="content-card developed-card">
                 <div class="content-card-title">
                     Data and Feature Pipeline
                 </div>
@@ -513,7 +709,7 @@ def render_methodology_lessons() -> None:
     with developed_columns_1[1]:
         render_html(
             """
-            <div class="content-card">
+            <div class="content-card developed-card">
                 <div class="content-card-title">
                     Modelling Pipeline
                 </div>
@@ -562,7 +758,7 @@ def render_methodology_lessons() -> None:
     with developed_columns_2[0]:
         render_html(
             """
-            <div class="content-card">
+            <div class="content-card developed-card">
                 <div class="content-card-title">
                     Portfolio and Backtesting Pipeline
                 </div>
@@ -605,7 +801,7 @@ def render_methodology_lessons() -> None:
     with developed_columns_2[1]:
         render_html(
             """
-            <div class="content-card">
+            <div class="content-card developed-card">
                 <div class="content-card-title">
                     Interactive Streamlit Application
                 </div>
@@ -648,7 +844,15 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Feature and Signal Development</div>'
+        """
+        <div class="section-header">
+            <div class="section-icon">ƒ</div>
+            <div>
+                <div class="section-heading">Feature and Signal Development</div>
+                <div class="section-subheading">Stock, market, industry and experimental quantitative features explored.</div>
+            </div>
+        </div>
+        """
     )
 
     feature_columns = st.columns(3)
@@ -656,7 +860,7 @@ def render_methodology_lessons() -> None:
     with feature_columns[0]:
         render_html(
             """
-            <div class="content-card">
+            <div class="content-card feature-card">
                 <div class="content-card-title">
                     Stock-Specific Features
                 </div>
@@ -674,7 +878,7 @@ def render_methodology_lessons() -> None:
     with feature_columns[1]:
         render_html(
             """
-            <div class="content-card">
+            <div class="content-card feature-card">
                 <div class="content-card-title">
                     Market and Industry Features
                 </div>
@@ -691,7 +895,7 @@ def render_methodology_lessons() -> None:
     with feature_columns[2]:
         render_html(
             """
-            <div class="content-card">
+            <div class="content-card feature-card">
                 <div class="content-card-title">
                     Experimental Research
                 </div>
@@ -711,7 +915,15 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Key Modelling Decisions</div>'
+        """
+        <div class="section-header">
+            <div class="section-icon">◆</div>
+            <div>
+                <div class="section-heading">Key Modelling Decisions</div>
+                <div class="section-subheading">The rationale behind validation, evaluation and model-comparison choices.</div>
+            </div>
+        </div>
+        """
     )
 
     render_html(
@@ -779,7 +991,15 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Key Technical Achievements</div>'
+        """
+        <div class="section-header">
+            <div class="section-icon">✓</div>
+            <div>
+                <div class="section-heading">Key Technical Achievements</div>
+                <div class="section-subheading">The principal software engineering and quantitative research outcomes.</div>
+            </div>
+        </div>
+        """
     )
 
     achievements = [
@@ -841,18 +1061,18 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Limitations</div>'
-    )
-
-    render_html(
         """
-        <div class="section-subheading">
-            These limitations should be considered when interpreting the
-            reported backtest results. They mainly reflect data availability,
-            practical assumptions and the scope of the research.
+        <div class="section-header">
+            <div class="section-icon">!</div>
+            <div>
+                <div class="section-heading">Limitations</div>
+                <div class="section-subheading">Important constraints affecting interpretation of the reported backtest results.</div>
+            </div>
         </div>
         """
     )
+
+
 
     limitations = [
         (
@@ -966,7 +1186,15 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Lessons Learned</div>'
+        """
+        <div class="section-header">
+            <div class="section-icon">★</div>
+            <div>
+                <div class="section-heading">Lessons Learned</div>
+                <div class="section-subheading">The main practical and technical conclusions drawn from the project.</div>
+            </div>
+        </div>
+        """
     )
 
     lessons = [
@@ -1051,17 +1279,18 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Future Research Directions</div>'
-    )
-
-    render_html(
         """
-        <div class="section-subheading">
-            These areas represent natural extensions to the completed
-            platform rather than requirements for the current version.
+        <div class="section-header">
+            <div class="section-icon">→</div>
+            <div>
+                <div class="section-heading">Future Research Directions</div>
+                <div class="section-subheading">Natural extensions to improve robustness, realism and production readiness.</div>
+            </div>
         </div>
         """
     )
+
+
 
     future_research = [
         (
@@ -1189,7 +1418,15 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Deployment and Productionisation</div>'
+        """
+        <div class="section-header">
+            <div class="section-icon">☁</div>
+            <div>
+                <div class="section-heading">Deployment and Productionisation</div>
+                <div class="section-subheading">Current cloud deployment status and possible production enhancements.</div>
+            </div>
+        </div>
+        """
     )
 
     render_html(
@@ -1222,7 +1459,15 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Project Reflection</div>'
+        """
+        <div class="section-header">
+            <div class="section-icon">✦</div>
+            <div>
+                <div class="section-heading">Project Reflection</div>
+                <div class="section-subheading">Overall conclusions from the research and development process.</div>
+            </div>
+        </div>
+        """
     )
 
     render_html(
@@ -1270,7 +1515,15 @@ def render_methodology_lessons() -> None:
     # ================================================================
 
     render_html(
-        '<div class="section-heading">Technology Stack</div>'
+        """
+        <div class="section-header">
+            <div class="section-icon">⌘</div>
+            <div>
+                <div class="section-heading">Technology Stack</div>
+                <div class="section-subheading">Languages, libraries and infrastructure supporting the platform.</div>
+            </div>
+        </div>
+        """
     )
 
     technologies = [
