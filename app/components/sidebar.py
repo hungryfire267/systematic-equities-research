@@ -141,10 +141,9 @@ def render_sidebar():
             options=[
                 "🏠  Overview",
                 "📊  Portfolio",
-                "🎯  Model Prediction",
                 "📈  Backtest Performance",
                 "⚖️  Model Comparison",
-                "✨  AI Insights"
+                "✨  Methodology"
             ],
             label_visibility="collapsed"
         )
