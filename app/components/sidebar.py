@@ -143,7 +143,6 @@ def render_sidebar():
                 "📊  Portfolio",
                 "🎯  Model Prediction",
                 "📈  Backtest Performance",
-                "🛡️  Risk Analysis",
                 "⚖️  Model Comparison",
                 "✨  AI Insights"
             ],
