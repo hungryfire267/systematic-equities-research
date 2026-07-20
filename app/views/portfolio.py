@@ -17,165 +17,315 @@ UNIVERSE_PATH = BASE_DIR / "data" / "asx_companies.csv"
 PORTFOLIO_CSS = """
 <style>
 .block-container {
-    max-width: 1380px;
-    padding-top: 2.5rem;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
-    padding-bottom: 2rem;
+    max-width: 1500px;
+    padding-top: 2rem;
+    padding-left: 1.6rem;
+    padding-right: 1.6rem;
+    padding-bottom: 3rem;
 }
 
-.portfolio-header {
-    margin-top: 0;
-    margin-bottom: 1rem;
+/* Hero */
+.portfolio-hero {
+    position: relative;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 88% 15%, rgba(16,185,129,0.18), transparent 28%),
+        radial-gradient(circle at 72% 105%, rgba(37,99,235,0.15), transparent 35%),
+        linear-gradient(135deg, #ECFDF5 0%, #F8FAFC 48%, #EFF6FF 100%);
+    border: 1px solid #CFE8E0;
+    border-radius: 22px;
+    padding: 1.75rem 1.9rem;
+    margin-bottom: 1.25rem;
+    box-shadow: 0 12px 34px rgba(15, 118, 110, 0.08);
+}
+
+.portfolio-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: rgba(255,255,255,0.82);
+    border: 1px solid rgba(16,185,129,0.22);
+    border-radius: 999px;
+    padding: 0.38rem 0.72rem;
+    color: #047857;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
 }
 
 .portfolio-title {
     margin: 0;
     color: #0F172A;
-    font-size: 2rem;
-    font-weight: 800;
-    line-height: 1.1;
+    font-size: 2.25rem;
+    font-weight: 850;
+    line-height: 1.08;
 }
 
 .portfolio-description {
-    margin-top: 0.4rem;
-    max-width: 780px;
-    color: #64748B;
-    font-size: 0.9rem;
-    line-height: 1.45;
+    margin-top: 0.65rem;
+    max-width: 920px;
+    color: #52647A;
+    font-size: 0.96rem;
+    line-height: 1.62;
+}
+
+.portfolio-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.95rem;
+}
+
+.portfolio-tag {
+    background: rgba(255,255,255,0.84);
+    border: 1px solid #D6E5E1;
+    border-radius: 999px;
+    padding: 0.4rem 0.72rem;
+    color: #334155;
+    font-size: 0.77rem;
+    font-weight: 750;
 }
 
 .latest-date {
-    margin-top: 0.5rem;
-    color: #94A3B8;
-    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.85rem;
+    padding: 0.38rem 0.68rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.72);
+    border: 1px solid #DCE7E4;
+    color: #64748B;
+    font-size: 0.73rem;
+    font-weight: 700;
+}
+
+/* Section headings */
+.section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    margin-top: 1.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.section-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2.15rem;
+    height: 2.15rem;
+    border-radius: 12px;
+    background: #EFF6FF;
+    color: #2563EB;
+    font-size: 1rem;
 }
 
 .section-title {
-    margin-top: 1.3rem;
-    margin-bottom: 0.2rem;
+    margin: 0;
     color: #0F172A;
-    font-size: 1.1rem;
-    font-weight: 800;
+    font-size: 1.25rem;
+    font-weight: 850;
+    line-height: 1.2;
 }
 
 .section-description {
-    margin-bottom: 0.65rem;
+    margin-top: 0.22rem;
+    margin-bottom: 0;
     color: #64748B;
-    font-size: 0.8rem;
+    font-size: 0.83rem;
     line-height: 1.45;
 }
 
+/* Headline metric cards */
 .portfolio-card {
-    min-height: 112px;
-    padding: 0.85rem 0.7rem;
-    border-radius: 14px;
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    box-shadow:
-        0 2px 4px rgba(15, 23, 42, 0.04),
-        0 8px 20px rgba(15, 23, 42, 0.05);
+    --card-accent: #2563EB;
+    --card-soft: #DBEAFE;
+    position: relative;
+    overflow: hidden;
+    min-height: 145px;
+    padding: 1rem 0.8rem 0.9rem;
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, var(--card-accent) 24%, #E2E8F0);
+    background: linear-gradient(145deg, #FFFFFF 0%, var(--card-soft) 160%);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.055);
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    align-items: center;
     box-sizing: border-box;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.portfolio-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
+}
+
+.portfolio-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 5px;
+    background: var(--card-accent);
+}
+
+.portfolio-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    margin-top: 0.15rem;
+    margin-bottom: 0.55rem;
+    border-radius: 999px;
+    background: var(--card-soft);
+    color: var(--card-accent);
+    font-size: 1rem;
+    font-weight: 850;
 }
 
 .portfolio-card-title {
+    color: #334155;
     font-size: 0.72rem;
-    font-weight: 700;
+    font-weight: 800;
     text-align: center;
-    opacity: 0.9;
 }
 
 .portfolio-card-value {
-    margin-top: 0.35rem;
-    font-size: 1.7rem;
-    font-weight: 800;
+    margin-top: 0.38rem;
+    color: var(--card-accent);
+    font-size: 1.62rem;
+    font-weight: 850;
     line-height: 1;
     text-align: center;
+    letter-spacing: -0.02em;
 }
 
 .portfolio-card-subtitle {
-    margin-top: 0.4rem;
+    margin-top: 0.5rem;
+    color: #64748B;
     font-size: 0.67rem;
+    line-height: 1.35;
     text-align: center;
-    opacity: 0.75;
 }
 
-.card-green {
-    background: linear-gradient(135deg, #ECFDF5, #D1FAE5);
+.card-green { --card-accent: #059669; --card-soft: #D1FAE5; }
+.card-red { --card-accent: #DC2626; --card-soft: #FEE2E2; }
+.card-blue { --card-accent: #2563EB; --card-soft: #DBEAFE; }
+.card-teal { --card-accent: #0D9488; --card-soft: #CCFBF1; }
+.card-purple { --card-accent: #7C3AED; --card-soft: #EDE9FE; }
+.card-orange { --card-accent: #EA580C; --card-soft: #FFEDD5; }
+
+/* Takeaway */
+.portfolio-takeaway {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.85rem;
+    align-items: flex-start;
+    margin-top: 0.9rem;
+    padding: 1rem 1.15rem;
+    border-radius: 16px;
+    border: 1px solid #A7F3D0;
+    border-left: 5px solid #10B981;
+    background: linear-gradient(135deg, #ECFDF5 0%, #EFF6FF 100%);
+}
+
+.takeaway-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 999px;
+    background: #D1FAE5;
     color: #047857;
+    font-size: 1.05rem;
 }
 
-.card-red {
-    background: linear-gradient(135deg, #FEF2F2, #FEE2E2);
-    color: #DC2626;
+.takeaway-title {
+    color: #065F46;
+    font-size: 0.88rem;
+    font-weight: 850;
+    margin-bottom: 0.3rem;
 }
 
-.card-blue {
-    background: linear-gradient(135deg, #EFF6FF, #DBEAFE);
-    color: #1D4ED8;
+.takeaway-text {
+    color: #334155;
+    font-size: 0.82rem;
+    line-height: 1.55;
 }
 
-.card-teal {
-    background: linear-gradient(135deg, #F0FDFA, #CCFBF1);
-    color: #0F766E;
-}
-
-.card-purple {
-    background: linear-gradient(135deg, #F5F3FF, #EDE9FE);
-    color: #7C3AED;
-}
-
-.card-orange {
-    background: linear-gradient(135deg, #FFF7ED, #FFEDD5);
-    color: #C2410C;
-}
-
+/* Chart panels */
 .panel-label {
     margin-bottom: 0.2rem;
     color: #0F172A;
     font-size: 0.95rem;
-    font-weight: 800;
+    font-weight: 850;
 }
 
 .panel-caption {
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.45rem;
     color: #64748B;
     font-size: 0.74rem;
 }
 
-.long-heading {
-    margin-bottom: 0.45rem;
-    color: #047857;
-    font-size: 0.95rem;
-    font-weight: 800;
+div[data-testid="stPlotlyChart"] {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 18px;
+    padding: 0.55rem;
+    box-shadow: 0 7px 22px rgba(15, 23, 42, 0.045);
 }
 
-.short-heading {
-    margin-bottom: 0.45rem;
-    color: #DC2626;
-    font-size: 0.95rem;
-    font-weight: 800;
-}
-
+/* Tables */
 div[data-testid="stDataFrame"] {
     border: 1px solid #E2E8F0;
-    border-radius: 12px;
+    border-radius: 15px;
     overflow: hidden;
+    box-shadow: 0 5px 18px rgba(15, 23, 42, 0.04);
 }
 
 div[data-testid="stSegmentedControl"] {
-    margin-bottom: 0.45rem;
+    margin-bottom: 0.55rem;
+}
+
+.long-heading,
+.short-heading {
+    padding: 0.65rem 0.85rem;
+    border-radius: 12px 12px 0 0;
+    font-size: 0.88rem;
+    font-weight: 850;
+    margin-bottom: 0.35rem;
+}
+
+.long-heading {
+    color: #047857;
+    background: #ECFDF5;
+    border: 1px solid #A7F3D0;
+}
+
+.short-heading {
+    color: #B91C1C;
+    background: #FEF2F2;
+    border: 1px solid #FECACA;
 }
 
 @media (max-width: 1200px) {
     .portfolio-card-value {
-        font-size: 1.4rem;
+        font-size: 1.38rem;
     }
 
     .portfolio-card-subtitle {
         font-size: 0.62rem;
+    }
+}
+
+@media (max-width: 900px) {
+    .portfolio-title {
+        font-size: 1.8rem;
     }
 }
 </style>
@@ -188,9 +338,21 @@ def render_portfolio_card(
     subtitle: str,
     card_class: str,
 ) -> None:
+    icons = {
+        "Long Positions": "↗",
+        "Short Positions": "↘",
+        "Gross Exposure": "◎",
+        "Net Exposure": "⚖",
+        "Largest Long": "▲",
+        "Largest Short": "▼",
+    }
+
+    icon = icons.get(title, "•")
+
     st.html(
         f"""
         <div class="portfolio-card {card_class}">
+            <div class="portfolio-card-icon">{icon}</div>
             <div class="portfolio-card-title">{title}</div>
             <div class="portfolio-card-value">{value}</div>
             <div class="portfolio-card-subtitle">{subtitle}</div>
@@ -365,13 +527,22 @@ def render_portfolio() -> None:
 
     st.html(
         """
-        <div class="portfolio-header">
+        <div class="portfolio-hero">
+            <div class="portfolio-kicker">● Current portfolio allocation</div>
             <h1 class="portfolio-title">Portfolio</h1>
 
             <div class="portfolio-description">
-                Explore current long and short positions, portfolio weights,
+                Explore the latest long and short positions, portfolio weights,
                 sector composition and realised return contributions generated
-                by the systematic strategy.
+                by the systematic ASX equity strategy.
+            </div>
+
+            <div class="portfolio-tags">
+                <span class="portfolio-tag">Dollar Neutral</span>
+                <span class="portfolio-tag">Weekly Rebalancing</span>
+                <span class="portfolio-tag">Long / Short</span>
+                <span class="portfolio-tag">Prediction Ranked</span>
+                <span class="portfolio-tag">Sector Monitored</span>
             </div>
         </div>
         """
@@ -520,7 +691,7 @@ def render_portfolio() -> None:
     st.html(
         f"""
         <div class="latest-date">
-            Latest rebalance: {latest_date:%d %B %Y}
+            🗓 Latest rebalance: {latest_date:%d %B %Y}
         </div>
         """
     )
@@ -578,15 +749,46 @@ def render_portfolio() -> None:
             card_class="card-orange",
         )
 
+    exposure_status = (
+        "market neutral"
+        if abs(net_exposure) < 0.01
+        else "net long"
+        if net_exposure > 0
+        else "net short"
+    )
+
+    st.html(
+        f"""
+        <div class="portfolio-takeaway">
+            <div class="takeaway-icon">★</div>
+            <div>
+                <div class="takeaway-title">Portfolio Snapshot</div>
+                <div class="takeaway-text">
+                    The latest portfolio contains
+                    <b>{len(long_positions)} long</b> and
+                    <b>{len(short_positions)} short</b> positions with
+                    <b>{gross_exposure:.1%} gross exposure</b>. Net exposure is
+                    <b>{net_exposure:.1%}</b>, leaving the strategy broadly
+                    <b>{exposure_status}</b>. The largest individual long and
+                    short allocations are <b>{largest_long:.1%}</b> and
+                    <b>{largest_short:.1%}</b>, respectively.
+                </div>
+            </div>
+        </div>
+        """
+    )
+
     st.html(
         """
-        <div class="section-title">
-            Portfolio Composition
-        </div>
-
-        <div class="section-description">
-            Review the largest individual positions and the distribution
-            of gross exposure across industries.
+        <div class="section-header">
+            <div class="section-icon">◫</div>
+            <div>
+                <div class="section-title">Portfolio Composition</div>
+                <div class="section-description">
+                    Review the largest individual positions and the distribution
+                    of gross exposure across industries.
+                </div>
+            </div>
         </div>
         """
     )
@@ -816,13 +1018,15 @@ def render_portfolio() -> None:
 
     st.html(
         """
-        <div class="section-title">
-            Current Positions
-        </div>
-
-        <div class="section-description">
-            Filter active holdings by portfolio side and inspect their
-            weights, predictions and realised returns.
+        <div class="section-header">
+            <div class="section-icon">≡</div>
+            <div>
+                <div class="section-title">Current Positions</div>
+                <div class="section-description">
+                    Filter active holdings by portfolio side and inspect their
+                    weights, predictions and realised returns.
+                </div>
+            </div>
         </div>
         """
     )
@@ -925,13 +1129,15 @@ def render_portfolio() -> None:
 
     st.html(
         """
-        <div class="section-title">
-            Portfolio Contribution
-        </div>
-
-        <div class="section-description">
-            Positions with the largest positive and negative realised
-            contribution to the latest portfolio return.
+        <div class="section-header">
+            <div class="section-icon">↕</div>
+            <div>
+                <div class="section-title">Portfolio Contribution</div>
+                <div class="section-description">
+                    Positions with the largest positive and negative realised
+                    contribution to the latest portfolio return.
+                </div>
+            </div>
         </div>
         """
     )

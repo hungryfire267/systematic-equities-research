@@ -1,22 +1,13 @@
-import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
+from scipy.stats import gaussian_kde
+from html import escape
 import os
 import pandas as pd
 from pathlib import Path
-import seaborn as sns
 import streamlit as st
 import sys
 
-from components.render_alpha import render_alpha_metric_cards
-from components.render_backtest_metrics import render_backtest_metric_cards
-from components.render_cumulative_returns import render_cumulative_returns
-from components.render_drawdown import render_drawdown
-from components.render_return_distribution import (
-    render_return_distribution
-)
-from components.render_return_summary import (
-    render_return_summary
-)
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -131,62 +122,2143 @@ asx_metrics_full = asx_metrics.get_metrics()
 
 print(asx_metrics_full)
 
+
+BACKTEST_PAGE_CSS = """
+<style>
+.block-container {
+    max-width: 1500px;
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
+.backtest-hero {
+    position: relative;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 88% 18%, rgba(124,58,237,0.18), transparent 28%),
+        radial-gradient(circle at 72% 110%, rgba(37,99,235,0.15), transparent 36%),
+        linear-gradient(135deg, #EFF6FF 0%, #F8FAFC 48%, #F5F3FF 100%);
+    border: 1px solid #DCE7F5;
+    border-radius: 22px;
+    padding: 1.75rem 1.9rem;
+    margin-bottom: 1.25rem;
+    box-shadow: 0 12px 34px rgba(37,99,235,0.08);
+}
+
+.backtest-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: rgba(255,255,255,0.82);
+    border: 1px solid rgba(99,102,241,0.20);
+    border-radius: 999px;
+    padding: 0.38rem 0.72rem;
+    color: #4F46E5;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+}
+
+.backtest-title {
+    margin: 0;
+    color: #0F172A;
+    font-size: 2.25rem;
+    font-weight: 850;
+    line-height: 1.08;
+}
+
+.backtest-description {
+    margin-top: 0.65rem;
+    max-width: 920px;
+    color: #52647A;
+    font-size: 0.96rem;
+    line-height: 1.62;
+}
+
+.backtest-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.95rem;
+}
+
+.backtest-tag {
+    background: rgba(255,255,255,0.84);
+    border: 1px solid #D8E4F2;
+    border-radius: 999px;
+    padding: 0.4rem 0.72rem;
+    color: #334155;
+    font-size: 0.77rem;
+    font-weight: 750;
+}
+
+.section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    margin-top: 1.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.section-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.15rem;
+    height: 2.15rem;
+    border-radius: 12px;
+    background: #EFF6FF;
+    color: #2563EB;
+    font-size: 1rem;
+}
+
+.section-title {
+    color: #0F172A;
+    font-size: 1.25rem;
+    font-weight: 850;
+    line-height: 1.2;
+}
+
+.section-caption {
+    margin-top: 0.22rem;
+    color: #64748B;
+    font-size: 0.83rem;
+    line-height: 1.45;
+}
+
+.backtest-takeaway {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.85rem;
+    align-items: flex-start;
+    margin-top: 0.9rem;
+    padding: 1rem 1.15rem;
+    border-radius: 16px;
+    border: 1px solid #BFDBFE;
+    border-left: 5px solid #6366F1;
+    background: linear-gradient(135deg, #EFF6FF 0%, #F5F3FF 100%);
+}
+
+.takeaway-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 999px;
+    background: #E0E7FF;
+    color: #4338CA;
+    font-size: 1.05rem;
+}
+
+.takeaway-title {
+    color: #312E81;
+    font-size: 0.88rem;
+    font-weight: 850;
+    margin-bottom: 0.3rem;
+}
+
+.takeaway-text {
+    color: #334155;
+    font-size: 0.82rem;
+    line-height: 1.55;
+}
+
+.alpha-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.alpha-card {
+    border-radius: 17px;
+    padding: 1rem 1.05rem;
+    min-height: 126px;
+    border: 1px solid var(--alpha-border);
+    background: linear-gradient(145deg, #FFFFFF 0%, var(--alpha-bg) 155%);
+    box-shadow: 0 6px 18px rgba(15,23,42,0.045);
+}
+
+.alpha-label {
+    color: #64748B;
+    font-size: 0.75rem;
+    font-weight: 800;
+    margin-bottom: 0.45rem;
+}
+
+.alpha-value {
+    color: var(--alpha-accent);
+    font-size: 1.45rem;
+    font-weight: 850;
+    line-height: 1.1;
+    margin-bottom: 0.42rem;
+}
+
+.alpha-note {
+    color: #64748B;
+    font-size: 0.69rem;
+    line-height: 1.4;
+}
+
+div[data-testid="stPlotlyChart"] {
+    border-radius: 16px;
+}
+
+@media (max-width: 900px) {
+    .alpha-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+</style>
+"""
+
+
+def _format_alpha_value(value, percentage=False):
+    if value is None or pd.isna(value):
+        return "—"
+    return f"{value:.1%}" if percentage else f"{value:.2f}"
+
+
+def render_alpha_metric_cards(alpha_metrics: dict) -> None:
+    definitions = [
+        ("Annualised Alpha", "annualised_alpha", True, "#059669", "#D1FAE5", "#A7F3D0",
+         "Estimated excess return after benchmark exposure."),
+        ("Market Beta", "beta", False, "#2563EB", "#DBEAFE", "#BFDBFE",
+         "Sensitivity of strategy returns to the ASX 200."),
+        ("Market R²", "r_squared", True, "#7C3AED", "#EDE9FE", "#DDD6FE",
+         "Share of strategy-return variation explained by the benchmark."),
+        ("Information Ratio", "information_ratio", False, "#EA580C", "#FFEDD5", "#FED7AA",
+         "Active return generated per unit of benchmark-relative risk."),
+    ]
+
+    cards = []
+    for label, key, percentage, accent, bg, border, note in definitions:
+        value = alpha_metrics.get(key)
+        cards.append(
+            f"""
+            <div class="alpha-card" style="
+                --alpha-accent:{accent};
+                --alpha-bg:{bg};
+                --alpha-border:{border};
+            ">
+                <div class="alpha-label">{label}</div>
+                <div class="alpha-value">{_format_alpha_value(value, percentage)}</div>
+                <div class="alpha-note">{note}</div>
+            </div>
+            """
+        )
+
+    st.html(f'<div class="alpha-grid">{"".join(cards)}</div>')
+
+
+def _format_metric(
+    value: float | None,
+    as_percentage: bool
+) -> str:
+    if value is None or pd.isna(value):
+        return "—"
+
+    if as_percentage:
+        return f"{value:.1%}"
+
+    return f"{value:.2f}"
+
+
+def _format_difference(
+    difference: float,
+    as_percentage: bool
+) -> str:
+    if as_percentage:
+        return f"{difference:+.1%}"
+
+    return f"{difference:+.2f}"
+
+
+def render_backtest_metric_cards(
+    strategy_metrics: dict,
+    benchmark_metrics: dict,
+    strategy_name: str,
+    benchmark_name: str = "ASX 200"
+) -> None:
+    """
+    Render headline strategy performance cards.
+    """
+
+    metrics = [
+        {
+            "label": "Annual Return",
+            "key": "annual_return",
+            "symbol": "↗",
+            "percentage": True,
+            "higher_is_better": True,
+            "card_class": "annual-return-card"
+        },
+        {
+            "label": "Sharpe Ratio",
+            "key": "sharpe_ratio",
+            "symbol": "◆",
+            "percentage": False,
+            "higher_is_better": True,
+            "card_class": "sharpe-card"
+        },
+        {
+            "label": "Sortino Ratio",
+            "key": "sortino_ratio",
+            "symbol": "▲",
+            "percentage": False,
+            "higher_is_better": True,
+            "card_class": "sortino-card"
+        },
+        {
+            "label": "Maximum Drawdown",
+            "key": "max_drawdown",
+            "symbol": "↓",
+            "percentage": True,
+            "higher_is_better": True,
+            "card_class": "drawdown-card"
+        },
+        {
+            "label": "Weekly Win Rate",
+            "key": "win_rate",
+            "symbol": "✓",
+            "percentage": True,
+            "higher_is_better": True,
+            "card_class": "win-rate-card"
+        }
+    ]
+
+    cards = []
+
+    for metric in metrics:
+        key = metric["key"]
+
+        strategy_value = strategy_metrics.get(key)
+        benchmark_value = benchmark_metrics.get(key)
+
+        formatted_value = _format_metric(
+            strategy_value,
+            metric["percentage"]
+        )
+
+        if (
+            strategy_value is None
+            or benchmark_value is None
+            or pd.isna(strategy_value)
+            or pd.isna(benchmark_value)
+        ):
+            delta_class = "metric-card-delta-neutral"
+            delta_text = "Benchmark unavailable"
+
+        else:
+            difference = strategy_value - benchmark_value
+
+            is_better = (
+                strategy_value > benchmark_value
+                if metric["higher_is_better"]
+                else strategy_value < benchmark_value
+            )
+
+            delta_class = (
+                "metric-card-delta-positive"
+                if is_better
+                else "metric-card-delta-negative"
+            )
+
+            formatted_difference = _format_difference(
+                difference,
+                metric["percentage"]
+            )
+
+            delta_text = (
+                f"{formatted_difference} "
+                f"vs {escape(benchmark_name)}"
+            )
+
+        cards.append(
+            f"""
+            <div class="
+                headline-metric-card
+                {metric["card_class"]}
+            ">
+                <div class="headline-metric-top">
+                    <div class="headline-metric-symbol">
+                        {metric["symbol"]}
+                    </div>
+
+                    <div class="headline-metric-label">
+                        {escape(metric["label"])}
+                    </div>
+                </div>
+
+                <div class="headline-metric-value">
+                    {formatted_value}
+                </div>
+
+                <div class="headline-metric-strategy">
+                    {escape(strategy_name)}
+                </div>
+
+                <div class="
+                    headline-metric-delta
+                    {delta_class}
+                ">
+                    {delta_text}
+                </div>
+            </div>
+            """
+        )
+
+    cards_html = "".join(cards)
+
+    st.html(
+        f"""
+        <style>
+            .headline-metrics-section {{
+                width: 100%;
+                margin-top: 18px;
+            }}
+
+            .headline-metrics-header {{
+                margin-bottom: 12px;
+            }}
+
+            .headline-metrics-title {{
+                color: #0F172A;
+                font-size: 16px;
+                font-weight: 700;
+                line-height: 1.3;
+            }}
+
+            .headline-metrics-caption {{
+                margin-top: 4px;
+                color: #64748B;
+                font-size: 13px;
+                line-height: 1.4;
+            }}
+
+            .headline-metrics-grid {{
+                display: grid;
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+                gap: 12px;
+            }}
+
+            .headline-metric-card {{
+                min-width: 0;
+                padding: 16px;
+                border-radius: 13px;
+                box-sizing: border-box;
+                box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+            }}
+
+            .annual-return-card {{
+                border: 1px solid #A7F3D0;
+                background: #ECFDF5;
+            }}
+
+            .sharpe-card {{
+                border: 1px solid #BFDBFE;
+                background: #EFF6FF;
+            }}
+
+            .sortino-card {{
+                border: 1px solid #DDD6FE;
+                background: #F5F3FF;
+            }}
+
+            .drawdown-card {{
+                border: 1px solid #FECACA;
+                background: #FEF2F2;
+            }}
+
+            .win-rate-card {{
+                border: 1px solid #FDE68A;
+                background: #FFFBEB;
+            }}
+
+            .headline-metric-top {{
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                min-width: 0;
+            }}
+
+            .headline-metric-symbol {{
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 28px;
+                height: 28px;
+                flex: 0 0 28px;
+                border-radius: 8px;
+                font-size: 15px;
+                font-weight: 800;
+            }}
+
+            .annual-return-card .headline-metric-symbol {{
+                background: #D1FAE5;
+                color: #047857;
+            }}
+
+            .sharpe-card .headline-metric-symbol {{
+                background: #DBEAFE;
+                color: #1D4ED8;
+            }}
+
+            .sortino-card .headline-metric-symbol {{
+                background: #EDE9FE;
+                color: #6D28D9;
+            }}
+
+            .drawdown-card .headline-metric-symbol {{
+                background: #FEE2E2;
+                color: #B91C1C;
+            }}
+
+            .win-rate-card .headline-metric-symbol {{
+                background: #FEF3C7;
+                color: #A16207;
+            }}
+
+            .headline-metric-label {{
+                overflow: hidden;
+                color: #475569;
+                font-size: 12px;
+                font-weight: 700;
+                line-height: 1.3;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }}
+
+            .headline-metric-value {{
+                margin-top: 14px;
+                color: #0F172A;
+                font-size: 25px;
+                font-weight: 800;
+                line-height: 1;
+                font-variant-numeric: tabular-nums;
+            }}
+
+            .headline-metric-strategy {{
+                margin-top: 6px;
+                color: #64748B;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+
+            .headline-metric-delta {{
+                margin-top: 11px;
+                font-size: 11px;
+                font-weight: 700;
+                line-height: 1.3;
+            }}
+
+            .metric-card-delta-positive {{
+                color: #059669;
+            }}
+
+            .metric-card-delta-negative {{
+                color: #DC2626;
+            }}
+
+            .metric-card-delta-neutral {{
+                color: #64748B;
+            }}
+
+            @media (max-width: 1100px) {{
+                .headline-metrics-grid {{
+                    grid-template-columns: repeat(3, minmax(0, 1fr));
+                }}
+            }}
+
+            @media (max-width: 700px) {{
+                .headline-metrics-grid {{
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }}
+            }}
+        </style>
+
+        <div class="headline-metrics-section">
+            <div class="headline-metrics-header">
+                <div class="headline-metrics-title">
+                    Performance Highlights
+                </div>
+
+                <div class="headline-metrics-caption">
+                    Headline {escape(strategy_name)} results compared with
+                    the {escape(benchmark_name)}.
+                </div>
+            </div>
+
+            <div class="headline-metrics-grid">
+                {cards_html}
+            </div>
+        </div>
+        """
+    )
+
+PERFORMANCE_COLOURS = {
+    "strategy": "#2563EB",
+    "benchmark": "#F97316",
+    "cash": "#64748B"
+}
+
+
+def _extract_return_series_cumulative(
+    returns: pd.Series | pd.DataFrame,
+    output_name: str,
+    return_col: str | None = None
+) -> pd.Series:
+    """
+    Convert a Series or DataFrame into a clean return Series.
+    """
+
+    if isinstance(returns, pd.Series):
+        series = returns.copy()
+
+    elif isinstance(returns, pd.DataFrame):
+        returns_df = returns.copy()
+
+        if return_col is not None:
+            if return_col not in returns_df.columns:
+                raise ValueError(
+                    f"Column '{return_col}' was not found. "
+                    f"Available columns: {list(return_col.columns)}"
+                )
+
+            series = returns_df[return_col].copy()
+
+        else:
+            numeric_columns = (
+                returns_df
+                .select_dtypes(include=np.number)
+                .columns
+                .tolist()
+            )
+
+            if len(numeric_columns) != 1:
+                raise ValueError(
+                    f"{output_name} returns contain multiple numeric columns. "
+                    "Pass the required column using return_col. "
+                    f"Available columns: {list(returns_df.columns)}"
+                )
+
+            series = returns_df[numeric_columns[0]].copy()
+
+    else:
+        raise TypeError(
+            f"{output_name} returns must be a pandas Series or DataFrame, "
+            f"not {type(returns).__name__}."
+        )
+
+    series = pd.to_numeric(
+        series,
+        errors="coerce"
+    )
+
+    series = (
+        series
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+        .sort_index()
+    )
+
+    if series.empty:
+        raise ValueError(
+            f"{output_name} returns contain no valid observations."
+        )
+
+    series.name = output_name
+
+    return series
+
+
+def _prepare_cumulative_returns(
+    strategy_returns: pd.Series | pd.DataFrame,
+    benchmark_returns: pd.Series | pd.DataFrame,
+    cash_returns: pd.Series | pd.DataFrame | None = None,
+    strategy_return_col: str | None = None,
+    benchmark_return_col: str | None = None,
+    cash_return_col: str | None = None
+) -> pd.DataFrame:
+    """
+    Clean and align return series, then calculate cumulative returns.
+    """
+
+    strategy_series = _extract_return_series_cumulative(
+        returns=strategy_returns,
+        output_name="Strategy",
+        return_col=strategy_return_col
+    )
+
+    benchmark_series = _extract_return_series_cumulative(
+        returns=benchmark_returns,
+        output_name="Benchmark",
+        return_col=benchmark_return_col
+    )
+
+    series_to_align = [
+        strategy_series,
+        benchmark_series
+    ]
+
+    if cash_returns is not None:
+        cash_series = _extract_return_series_cumulative(
+            returns=cash_returns,
+            output_name="Cash",
+            return_col=cash_return_col
+        )
+
+        series_to_align.append(cash_series)
+
+    returns_df = pd.concat(
+        series_to_align,
+        axis=1,
+        join="inner"
+    )
+
+    returns_df = (
+        returns_df
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+    )
+
+    if returns_df.empty:
+        raise ValueError(
+            "No aligned return observations were found."
+        )
+
+    cumulative_returns = (
+        1 + returns_df
+    ).cumprod() - 1
+
+    return cumulative_returns
+
+
+def _add_final_value_annotation(
+    figure: go.Figure,
+    series: pd.Series,
+    colour: str
+) -> None:
+    """
+    Add the latest cumulative return to the right side of the chart.
+    """
+
+    final_date = series.index[-1]
+    final_value = float(series.iloc[-1])
+
+    figure.add_annotation(
+        x=final_date,
+        y=final_value,
+        text=f"<b>{final_value:.1%}</b>",
+        showarrow=False,
+        xanchor="left",
+        xshift=8,
+        font=dict(
+            color=colour,
+            size=12
+        ),
+        bgcolor="rgba(255,255,255,0.75)",
+        borderpad=2
+    )
+
+
+def _create_cumulative_return_figure(
+    cumulative_returns: pd.DataFrame,
+    strategy_name: str,
+    benchmark_name: str,
+    cash_name: str
+) -> go.Figure:
+    """
+    Create the cumulative portfolio-return chart.
+    """
+
+    figure = go.Figure()
+
+    figure.add_trace(
+        go.Scatter(
+            x=cumulative_returns.index,
+            y=cumulative_returns["Strategy"],
+            name=strategy_name,
+            mode="lines",
+            line=dict(
+                color=PERFORMANCE_COLOURS["strategy"],
+                width=2.4
+            ),
+            hovertemplate=(
+                "%{x|%d %b %Y}"
+                "<br>Cumulative return: %{y:.1%}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    figure.add_trace(
+        go.Scatter(
+            x=cumulative_returns.index,
+            y=cumulative_returns["Benchmark"],
+            name=benchmark_name,
+            mode="lines",
+            line=dict(
+                color=PERFORMANCE_COLOURS["benchmark"],
+                width=2.2
+            ),
+            hovertemplate=(
+                "%{x|%d %b %Y}"
+                "<br>Cumulative return: %{y:.1%}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    if "Cash" in cumulative_returns.columns:
+        figure.add_trace(
+            go.Scatter(
+                x=cumulative_returns.index,
+                y=cumulative_returns["Cash"],
+                name=cash_name,
+                mode="lines",
+                line=dict(
+                    color=PERFORMANCE_COLOURS["cash"],
+                    width=2
+                ),
+                hovertemplate=(
+                    "%{x|%d %b %Y}"
+                    "<br>Cumulative return: %{y:.1%}"
+                    "<extra></extra>"
+                )
+            )
+        )
+
+    _add_final_value_annotation(
+        figure=figure,
+        series=cumulative_returns["Strategy"],
+        colour=PERFORMANCE_COLOURS["strategy"]
+    )
+
+    _add_final_value_annotation(
+        figure=figure,
+        series=cumulative_returns["Benchmark"],
+        colour=PERFORMANCE_COLOURS["benchmark"]
+    )
+
+    if "Cash" in cumulative_returns.columns:
+        _add_final_value_annotation(
+            figure=figure,
+            series=cumulative_returns["Cash"],
+            colour=PERFORMANCE_COLOURS["cash"]
+        )
+
+    all_values = cumulative_returns.to_numpy().flatten()
+    all_values = all_values[np.isfinite(all_values)]
+
+    y_min = min(float(all_values.min()), 0)
+    y_max = max(float(all_values.max()), 0)
+
+    y_range = y_max - y_min
+    y_padding = max(y_range * 0.10, 0.03)
+
+    figure.add_hline(
+        y=0,
+        line_width=1,
+        line_color="#94A3B8"
+    )
+
+    figure.update_layout(
+        height=390,
+        margin=dict(
+            l=15,
+            r=78,
+            t=45,
+            b=15
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            font=dict(
+                size=11,
+                color="#475569"
+            )
+        ),
+        xaxis=dict(
+            title=None,
+            showgrid=False,
+            zeroline=False,
+            fixedrange=True,
+            tickfont=dict(
+                color="#64748B"
+            )
+        ),
+        yaxis=dict(
+            title=None,
+            tickformat=".0%",
+            range=[
+                y_min - y_padding,
+                y_max + y_padding
+            ],
+            gridcolor="rgba(148, 163, 184, 0.20)",
+            zeroline=False,
+            fixedrange=True,
+            tickfont=dict(
+                color="#64748B"
+            )
+        )
+    )
+
+    return figure
+
+
+def render_cumulative_returns(
+    strategy_returns: pd.Series | pd.DataFrame,
+    benchmark_returns: pd.Series | pd.DataFrame,
+    strategy_name: str,
+    benchmark_name: str = "ASX 200",
+    cash_returns: pd.Series | pd.DataFrame | None = None,
+    cash_name: str = "Cash",
+    strategy_return_col: str | None = None,
+    benchmark_return_col: str | None = None,
+    cash_return_col: str | None = None
+) -> None:
+    """
+    Render cumulative strategy, benchmark and optional cash returns.
+    """
+
+    cumulative_returns = _prepare_cumulative_returns(
+        strategy_returns=strategy_returns,
+        benchmark_returns=benchmark_returns,
+        cash_returns=cash_returns,
+        strategy_return_col=strategy_return_col,
+        benchmark_return_col=benchmark_return_col,
+        cash_return_col=cash_return_col
+    )
+
+    figure = _create_cumulative_return_figure(
+        cumulative_returns=cumulative_returns,
+        strategy_name=strategy_name,
+        benchmark_name=benchmark_name,
+        cash_name=cash_name
+    )
+
+    st.markdown(
+        """
+        <style>
+            div[data-testid="stPlotlyChart"] {
+                margin-top: -0.45rem;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.container(border=True):
+        st.markdown(
+            """
+            <div style="
+                color: #0F172A;
+                font-size: 16px;
+                font-weight: 700;
+                line-height: 1.3;
+                margin-bottom: 2px;
+            ">
+                Cumulative Portfolio Return
+            </div>
+
+            <div style="
+                color: #64748B;
+                font-size: 13px;
+                line-height: 1.4;
+                margin-bottom: 0;
+            ">
+                Growth of the strategy relative to the benchmark and cash.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.plotly_chart(
+            figure,
+            use_container_width=True,
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+                "scrollZoom": False
+            },
+            key="cumulative_portfolio_return"
+        )
+
+DRAWDOWN_COLOURS = {
+    "strategy": "#EF4444",
+    "benchmark": "#F97316"
+}
+
+
+def _extract_return_series_drawdown(
+    returns: pd.Series | pd.DataFrame,
+    output_name: str,
+    return_col: str | None = None
+) -> pd.Series:
+    """
+    Convert a Series or DataFrame into a clean return Series.
+    """
+
+    if isinstance(returns, pd.Series):
+        series = returns.copy()
+
+    elif isinstance(returns, pd.DataFrame):
+        returns_df = returns.copy()
+
+        if return_col is not None:
+            if return_col not in returns_df.columns:
+                raise ValueError(
+                    f"Column '{return_col}' was not found. "
+                    f"Available columns: {list(returns_df.columns)}"
+                )
+
+            series = returns_df[return_col].copy()
+
+        else:
+            numeric_columns = (
+                returns_df
+                .select_dtypes(include=np.number)
+                .columns
+                .tolist()
+            )
+
+            if len(numeric_columns) != 1:
+                raise ValueError(
+                    f"{output_name} returns contain multiple numeric columns. "
+                    "Pass the required column using return_col. "
+                    f"Available columns: {list(returns_df.columns)}"
+                )
+
+            series = returns_df[numeric_columns[0]].copy()
+
+    else:
+        raise TypeError(
+            f"{output_name} returns must be a pandas Series or DataFrame, "
+            f"not {type(returns).__name__}."
+        )
+
+    series = pd.to_numeric(
+        series,
+        errors="coerce"
+    )
+
+    series = (
+        series
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+        .sort_index()
+    )
+
+    if series.empty:
+        raise ValueError(
+            f"{output_name} returns contain no valid observations."
+        )
+
+    series.name = output_name
+
+    return series
+
+
+def _prepare_drawdowns(
+    strategy_returns: pd.Series | pd.DataFrame,
+    benchmark_returns: pd.Series | pd.DataFrame,
+    strategy_return_col: str | None = None,
+    benchmark_return_col: str | None = None
+) -> pd.DataFrame:
+    """
+    Clean and align returns, then calculate drawdown series.
+    """
+
+    strategy_series = _extract_return_series_drawdown(
+        returns=strategy_returns,
+        output_name="Strategy",
+        return_col=strategy_return_col
+    )
+
+    benchmark_series = _extract_return_series_drawdown(
+        returns=benchmark_returns,
+        output_name="Benchmark",
+        return_col=benchmark_return_col
+    )
+
+    returns_df = pd.concat(
+        [
+            strategy_series,
+            benchmark_series
+        ],
+        axis=1,
+        join="inner"
+    )
+
+    returns_df = (
+        returns_df
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+    )
+
+    if returns_df.empty:
+        raise ValueError(
+            "No aligned strategy and benchmark return observations "
+            "were found."
+        )
+
+    wealth_index = (
+        1 + returns_df
+    ).cumprod()
+
+    running_peak = wealth_index.cummax()
+
+    drawdowns = (
+        wealth_index / running_peak
+    ) - 1
+
+    return drawdowns
+
+
+def _add_final_drawdown_annotation(
+    figure: go.Figure,
+    series: pd.Series,
+    colour: str
+) -> None:
+    """
+    Add the latest drawdown value to the right side of the chart.
+    """
+
+    final_date = series.index[-1]
+    final_value = float(series.iloc[-1])
+
+    figure.add_annotation(
+        x=final_date,
+        y=final_value,
+        text=f"<b>{final_value:.1%}</b>",
+        showarrow=False,
+        xanchor="left",
+        xshift=8,
+        font=dict(
+            color=colour,
+            size=12
+        ),
+        bgcolor="rgba(255,255,255,0.78)",
+        borderpad=2
+    )
+
+
+def _create_drawdown_figure(
+    drawdowns: pd.DataFrame,
+    strategy_name: str,
+    benchmark_name: str
+) -> go.Figure:
+    """
+    Create strategy and benchmark drawdown chart.
+    """
+
+    figure = go.Figure()
+
+    figure.add_trace(
+        go.Scatter(
+            x=drawdowns.index,
+            y=drawdowns["Strategy"],
+            name=strategy_name,
+            mode="lines",
+            line=dict(
+                color=DRAWDOWN_COLOURS["strategy"],
+                width=2.2
+            ),
+            fill="tozeroy",
+            fillcolor="rgba(239, 68, 68, 0.12)",
+            hovertemplate=(
+                "%{x|%d %b %Y}"
+                "<br>Drawdown: %{y:.1%}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    figure.add_trace(
+        go.Scatter(
+            x=drawdowns.index,
+            y=drawdowns["Benchmark"],
+            name=benchmark_name,
+            mode="lines",
+            line=dict(
+                color=DRAWDOWN_COLOURS["benchmark"],
+                width=2
+            ),
+            hovertemplate=(
+                "%{x|%d %b %Y}"
+                "<br>Drawdown: %{y:.1%}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    _add_final_drawdown_annotation(
+        figure=figure,
+        series=drawdowns["Strategy"],
+        colour=DRAWDOWN_COLOURS["strategy"]
+    )
+
+    _add_final_drawdown_annotation(
+        figure=figure,
+        series=drawdowns["Benchmark"],
+        colour=DRAWDOWN_COLOURS["benchmark"]
+    )
+
+    minimum_drawdown = float(
+        drawdowns.min().min()
+    )
+
+    lower_bound = min(
+        minimum_drawdown * 1.12,
+        -0.05
+    )
+
+    figure.add_hline(
+        y=0,
+        line_width=1.2,
+        line_color="#64748B"
+    )
+
+    figure.update_layout(
+        height=390,
+        margin=dict(
+            l=15,
+            r=78,
+            t=45,
+            b=15
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            font=dict(
+                size=11,
+                color="#475569"
+            )
+        ),
+        xaxis=dict(
+            title=None,
+            showgrid=False,
+            zeroline=False,
+            fixedrange=True,
+            tickfont=dict(
+                color="#64748B"
+            )
+        ),
+        yaxis=dict(
+            title=None,
+            tickformat=".0%",
+            range=[
+                lower_bound,
+                0.01
+            ],
+            gridcolor="rgba(148, 163, 184, 0.20)",
+            zeroline=False,
+            fixedrange=True,
+            tickfont=dict(
+                color="#64748B"
+            )
+        )
+    )
+
+    return figure
+
+
+def render_drawdown(
+    strategy_returns: pd.Series | pd.DataFrame,
+    benchmark_returns: pd.Series | pd.DataFrame,
+    strategy_name: str,
+    benchmark_name: str = "ASX 200",
+    strategy_return_col: str | None = None,
+    benchmark_return_col: str | None = None
+) -> None:
+    """
+    Render strategy and benchmark drawdowns over time.
+    """
+
+    drawdowns = _prepare_drawdowns(
+        strategy_returns=strategy_returns,
+        benchmark_returns=benchmark_returns,
+        strategy_return_col=strategy_return_col,
+        benchmark_return_col=benchmark_return_col
+    )
+
+    figure = _create_drawdown_figure(
+        drawdowns=drawdowns,
+        strategy_name=strategy_name,
+        benchmark_name=benchmark_name
+    )
+
+    with st.container(border=True):
+        st.markdown(
+            """
+            <div style="
+                color: #0F172A;
+                font-size: 16px;
+                font-weight: 700;
+                line-height: 1.3;
+                margin-bottom: 2px;
+            ">
+                Drawdown Over Time
+            </div>
+
+            <div style="
+                color: #64748B;
+                font-size: 13px;
+                line-height: 1.4;
+                margin-bottom: 0;
+            ">
+                Peak-to-trough portfolio declines relative to the benchmark.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.plotly_chart(
+            figure,
+            use_container_width=True,
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+                "scrollZoom": False
+            },
+            key="portfolio_drawdown"
+        )
+
+MODEL_COLOURS = {
+    "strategy": "#10B981",
+    "benchmark": "#2563EB"
+}
+
+# Use this same height for the summary-table container.
+BACKTEST_CARD_HEIGHT = 520
+
+
+def _extract_return_series_distribution(
+    returns: pd.Series | pd.DataFrame,
+    output_name: str,
+    return_col: str | None = None
+) -> pd.Series:
+    """
+    Convert a Series or DataFrame into a clean return Series.
+
+    For a DataFrame:
+    - Uses return_col when supplied.
+    - Otherwise uses the only numeric column when exactly one exists.
+    """
+
+    if isinstance(returns, pd.Series):
+        series = returns.copy()
+
+    elif isinstance(returns, pd.DataFrame):
+        returns_df = returns.copy()
+
+        if return_col is not None:
+            if return_col not in returns_df.columns:
+                raise ValueError(
+                    f"Column '{return_col}' was not found. "
+                    f"Available columns: {list(returns_df.columns)}"
+                )
+
+            series = returns_df[return_col].copy()
+
+        else:
+            numeric_columns = (
+                returns_df
+                .select_dtypes(include=np.number)
+                .columns
+                .tolist()
+            )
+
+            if len(numeric_columns) == 1:
+                series = returns_df[numeric_columns[0]].copy()
+
+            else:
+                raise ValueError(
+                    f"{output_name} returns were provided as a DataFrame "
+                    "with multiple numeric columns. Pass the appropriate "
+                    "return column using return_col. "
+                    f"Available columns: {list(returns_df.columns)}"
+                )
+
+    else:
+        raise TypeError(
+            f"{output_name} returns must be a pandas Series "
+            f"or DataFrame, not {type(returns).__name__}."
+        )
+
+    series = pd.to_numeric(
+        series,
+        errors="coerce"
+    )
+
+    series = (
+        series
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+        .sort_index()
+    )
+
+    series.name = output_name
+
+    if series.empty:
+        raise ValueError(
+            f"{output_name} returns contain no valid observations."
+        )
+
+    return series
+
+
+def _prepare_returns(
+    strategy_returns: pd.Series | pd.DataFrame,
+    benchmark_returns: pd.Series | pd.DataFrame,
+    strategy_return_col: str | None = None,
+    benchmark_return_col: str | None = None
+) -> pd.DataFrame:
+    """
+    Extract, clean and align strategy and benchmark returns by index.
+    """
+
+    strategy_series = _extract_return_series_distribution(
+        returns=strategy_returns,
+        output_name="Strategy",
+        return_col=strategy_return_col
+    )
+
+    benchmark_series = _extract_return_series_distribution(
+        returns=benchmark_returns,
+        output_name="Benchmark",
+        return_col=benchmark_return_col
+    )
+
+    returns_df = pd.concat(
+        [
+            strategy_series,
+            benchmark_series
+        ],
+        axis=1,
+        join="inner"
+    )
+
+    returns_df = (
+        returns_df
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+    )
+
+    if returns_df.empty:
+        raise ValueError(
+            "No aligned strategy and benchmark return observations "
+            "were found."
+        )
+
+    return returns_df
+
+
+def _calculate_plot_range(
+    returns_df: pd.DataFrame
+) -> tuple[float, float]:
+    """
+    Create a shared x-axis range for the histogram and box plot.
+    """
+
+    combined_returns = pd.concat(
+        [
+            returns_df["Strategy"],
+            returns_df["Benchmark"]
+        ],
+        ignore_index=True
+    ).dropna()
+
+    x_min = float(combined_returns.min())
+    x_max = float(combined_returns.max())
+
+    data_range = x_max - x_min
+
+    if data_range == 0:
+        padding = 0.01
+    else:
+        padding = data_range * 0.08
+
+    return x_min - padding, x_max + padding
+
+
+def _add_kde_trace(
+    figure: go.Figure,
+    returns: pd.Series,
+    name: str,
+    colour: str,
+    x_min: float,
+    x_max: float
+) -> None:
+    """
+    Add a kernel-density-estimate line to the histogram.
+
+    KDE is skipped when there are too few observations or no variation.
+    """
+
+    clean_returns = (
+        pd.to_numeric(returns, errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+    )
+
+    if len(clean_returns) < 2:
+        return
+
+    if clean_returns.nunique() < 2:
+        return
+
+    try:
+        kde = gaussian_kde(
+            clean_returns.to_numpy()
+        )
+
+        x_grid = np.linspace(
+            x_min,
+            x_max,
+            400
+        )
+
+        density = kde(x_grid)
+
+        figure.add_trace(
+            go.Scatter(
+                x=x_grid,
+                y=density,
+                mode="lines",
+                name=f"{name} KDE",
+                line=dict(
+                    color=colour,
+                    width=2.5
+                ),
+                hovertemplate=(
+                    "Weekly return: %{x:.2%}"
+                    "<br>Estimated density: %{y:.2f}"
+                    "<extra></extra>"
+                )
+            )
+        )
+
+    except (np.linalg.LinAlgError, ValueError):
+        # KDE may fail for singular or effectively constant data.
+        return
+
+
+def _create_histogram(
+    returns_df: pd.DataFrame,
+    strategy_name: str,
+    benchmark_name: str,
+    x_min: float,
+    x_max: float
+) -> go.Figure:
+    """
+    Create overlapping probability-density histograms with KDE lines.
+    """
+
+    figure = go.Figure()
+
+    figure.add_trace(
+        go.Histogram(
+            x=returns_df["Strategy"],
+            name=strategy_name,
+            histnorm="probability density",
+            opacity=0.48,
+            marker=dict(
+                color=MODEL_COLOURS["strategy"],
+                line=dict(
+                    color=MODEL_COLOURS["strategy"],
+                    width=0.5
+                )
+            ),
+            hovertemplate=(
+                "Weekly return: %{x:.2%}"
+                "<br>Density: %{y:.2f}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    figure.add_trace(
+        go.Histogram(
+            x=returns_df["Benchmark"],
+            name=benchmark_name,
+            histnorm="probability density",
+            opacity=0.48,
+            marker=dict(
+                color=MODEL_COLOURS["benchmark"],
+                line=dict(
+                    color=MODEL_COLOURS["benchmark"],
+                    width=0.5
+                )
+            ),
+            hovertemplate=(
+                "Weekly return: %{x:.2%}"
+                "<br>Density: %{y:.2f}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    _add_kde_trace(
+        figure=figure,
+        returns=returns_df["Strategy"],
+        name=strategy_name,
+        colour=MODEL_COLOURS["strategy"],
+        x_min=x_min,
+        x_max=x_max
+    )
+
+    _add_kde_trace(
+        figure=figure,
+        returns=returns_df["Benchmark"],
+        name=benchmark_name,
+        colour=MODEL_COLOURS["benchmark"],
+        x_min=x_min,
+        x_max=x_max
+    )
+
+    figure.add_vline(
+        x=0,
+        line_width=1,
+        line_color="#64748B"
+    )
+
+    figure.update_layout(
+        barmode="overlay",
+        bargap=0.03,
+        height=245,
+        margin=dict(
+            l=12,
+            r=12,
+            t=36,
+            b=10
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            font=dict(
+                size=11,
+                color="#475569"
+            )
+        ),
+        xaxis=dict(
+            title="Weekly return",
+            range=[x_min, x_max],
+            tickformat=".0%",
+            gridcolor="rgba(148, 163, 184, 0.18)",
+            zeroline=False,
+            fixedrange=True
+        ),
+        yaxis=dict(
+            title="Density",
+            gridcolor="rgba(148, 163, 184, 0.18)",
+            zeroline=False,
+            fixedrange=True
+        )
+    )
+
+    return figure
+
+
+def _create_boxplot(
+    returns_df: pd.DataFrame,
+    strategy_name: str,
+    benchmark_name: str,
+    x_min: float,
+    x_max: float
+) -> go.Figure:
+    """
+    Create horizontal box plots for strategy and benchmark returns.
+    """
+
+    figure = go.Figure()
+
+    figure.add_trace(
+        go.Box(
+            x=returns_df["Strategy"],
+            name=strategy_name,
+            orientation="h",
+            boxmean=True,
+            boxpoints="outliers",
+            fillcolor="rgba(16, 185, 129, 0.45)",
+            marker=dict(
+                color=MODEL_COLOURS["strategy"],
+                size=5
+            ),
+            line=dict(
+                color=MODEL_COLOURS["strategy"],
+                width=1.5
+            ),
+            hovertemplate=(
+                "Weekly return: %{x:.2%}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    figure.add_trace(
+        go.Box(
+            x=returns_df["Benchmark"],
+            name=benchmark_name,
+            orientation="h",
+            boxmean=True,
+            boxpoints="outliers",
+            fillcolor="rgba(37, 99, 235, 0.40)",
+            marker=dict(
+                color=MODEL_COLOURS["benchmark"],
+                size=5
+            ),
+            line=dict(
+                color=MODEL_COLOURS["benchmark"],
+                width=1.5
+            ),
+            hovertemplate=(
+                "Weekly return: %{x:.2%}"
+                "<extra></extra>"
+            )
+        )
+    )
+
+    figure.add_vline(
+        x=0,
+        line_width=1,
+        line_color="#64748B"
+    )
+
+    figure.update_layout(
+        height=175,
+        margin=dict(
+            l=10,
+            r=12,
+            t=0,
+            b=10
+        ),
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(
+            title="Weekly return",
+            range=[x_min, x_max],
+            tickformat=".0%",
+            gridcolor="rgba(148, 163, 184, 0.18)",
+            zeroline=False,
+            fixedrange=True
+        ),
+        yaxis=dict(
+            title=None,
+            showgrid=False,
+            fixedrange=True,
+            categoryorder="array",
+            categoryarray=[
+                strategy_name,
+                benchmark_name
+            ]
+        )
+    )
+
+    return figure
+
+
+def render_return_distribution(
+    strategy_returns: pd.Series | pd.DataFrame,
+    benchmark_returns: pd.Series | pd.DataFrame,
+    strategy_name: str,
+    benchmark_name: str = "ASX 200",
+    strategy_return_col: str | None = None,
+    benchmark_return_col: str | None = None,
+    container_height: int = BACKTEST_CARD_HEIGHT
+) -> None:
+    """
+    Render weekly strategy and benchmark return distributions.
+
+    Set container_height to the same value used by the adjacent
+    risk-and-return summary container so both cards align.
+    """
+
+    returns_df = _prepare_returns(
+        strategy_returns=strategy_returns,
+        benchmark_returns=benchmark_returns,
+        strategy_return_col=strategy_return_col,
+        benchmark_return_col=benchmark_return_col
+    )
+
+    x_min, x_max = _calculate_plot_range(
+        returns_df=returns_df
+    )
+
+    histogram = _create_histogram(
+        returns_df=returns_df,
+        strategy_name=strategy_name,
+        benchmark_name=benchmark_name,
+        x_min=x_min,
+        x_max=x_max
+    )
+
+    boxplot = _create_boxplot(
+        returns_df=returns_df,
+        strategy_name=strategy_name,
+        benchmark_name=benchmark_name,
+        x_min=x_min,
+        x_max=x_max
+    )
+
+    with st.container(
+        border=True,
+        height=container_height
+    ):
+        st.markdown(
+            """
+<div style="
+    color: #0F172A;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.25;
+    margin: 0 0 3px 0;
+">
+    Return Distribution
+</div>
+<div style="
+    color: #64748B;
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 0 0 2px 0;
+">
+    Weekly return dispersion, central tendency and outliers.
+</div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.plotly_chart(
+            histogram,
+            use_container_width=True,
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+                "scrollZoom": False
+            },
+            key="return_distribution_histogram"
+        )
+
+        st.plotly_chart(
+            boxplot,
+            use_container_width=True,
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+                "scrollZoom": False
+            },
+            key="return_distribution_boxplot"
+        )
+
+def _format_value(
+    value: float | None,
+    as_percentage: bool = False
+) -> str:
+    if value is None or pd.isna(value):
+        return "—"
+
+    if as_percentage:
+        return f"{value:.1%}"
+
+    return f"{value:.2f}"
+
+
+def render_return_summary(
+    strategy_metrics: dict,
+    benchmark_metrics: dict,
+    strategy_name: str,
+    benchmark_name: str = "ASX 200"
+) -> None:
+    """
+    Render a risk and return comparison table.
+    """
+
+    metrics = [
+        ("Annual Return", "annual_return", True),
+        ("Total Return", "total_return", True),
+        ("Annual Volatility", "annual_volatility", True),
+        ("Sharpe Ratio", "sharpe_ratio", False),
+        ("Sortino Ratio", "sortino_ratio", False),
+        ("Maximum Drawdown", "max_drawdown", True),
+        ("Calmar Ratio", "calmar_ratio", False),
+        ("Weekly Win Rate", "win_rate", True),
+        ("Worst Week", "worst_week", True)
+    ]
+
+    rows = []
+
+    for label, key, as_percentage in metrics:
+        strategy_value = strategy_metrics.get(key)
+        benchmark_value = benchmark_metrics.get(key)
+
+        strategy_display = _format_value(
+            strategy_value,
+            as_percentage
+        )
+
+        benchmark_display = _format_value(
+            benchmark_value,
+            as_percentage
+        )
+
+        rows.append(
+            f"""
+            <tr>
+                <td class="metric-name">{escape(label)}</td>
+                <td class="metric-value">{strategy_display}</td>
+                <td class="metric-value">{benchmark_display}</td>
+            </tr>
+            """
+        )
+
+    rows_html = "".join(rows)
+
+    html = f"""
+        <style>
+            .return-summary-card {{
+                width: 100%;
+                height: 520px;                 /* <-- Added */
+                padding: 20px;
+                border: 1px solid #DCE3EC;
+                border-radius: 14px;
+                background: #FFFFFF;
+                box-sizing: border-box;
+
+                display: flex;                 /* <-- Added */
+                flex-direction: column;        /* <-- Added */
+            }}
+
+            .return-summary-title {{
+                margin: 0;
+                color: #0F172A;
+                font-size: 16px;
+                font-weight: 700;
+                line-height: 1.3;
+            }}
+
+            .return-summary-caption {{
+                margin-top: 5px;
+                margin-bottom: 16px;
+                color: #64748B;
+                font-size: 13px;
+                line-height: 1.4;
+            }}
+
+            .return-summary-table-wrapper {{
+                width: 100%;
+                flex: 1;                       /* <-- Added */
+                display: flex;                 /* <-- Added */
+                flex-direction: column;        /* <-- Added */
+            }}
+
+            .return-summary-table {{
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+            }}
+
+            .return-summary-table th {{
+                padding: 11px 10px;
+                border-bottom: 1px solid #CBD5E1;
+                background: #F8FAFC;
+                color: #475569;
+                font-size: 12px;
+                font-weight: 700;
+                text-align: right;
+            }}
+
+            .return-summary-table th:first-child {{
+                width: 40%;
+                text-align: left;
+                border-top-left-radius: 8px;
+            }}
+
+            .return-summary-table th:last-child {{
+                border-top-right-radius: 8px;
+            }}
+
+            .return-summary-table td {{
+                padding: 11px 10px;
+                border-bottom: 1px solid #E2E8F0;
+                color: #0F172A;
+                font-size: 13px;
+            }}
+
+            .return-summary-table tbody tr:last-child td {{
+                border-bottom: none;
+            }}
+
+            .metric-name {{
+                font-weight: 600;
+                text-align: left;
+            }}
+
+            .metric-value {{
+                font-variant-numeric: tabular-nums;
+                text-align: right;
+            }}
+        </style>
+
+        <div class="return-summary-card">
+
+            <div class="return-summary-title">
+                Risk &amp; Return Summary
+            </div>
+
+            <div class="return-summary-caption">
+                Comparison of portfolio performance against the benchmark.
+            </div>
+
+            <div class="return-summary-table-wrapper">
+
+                <table class="return-summary-table">
+
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>{escape(strategy_name)}</th>
+                            <th>{escape(benchmark_name)}</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {rows_html}
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+        """
+
+    st.html(html)
+
+
 def render_backtesting():
-    st.markdown("## Backtest Performance")
+    st.html(BACKTEST_PAGE_CSS)
 
-    st.caption(
-        "A comparison between the ASX 200 benchmark "
-        "and the Decision Tree strategy."
+    st.html(
+        """
+        <div class="backtest-hero">
+            <div class="backtest-kicker">● Strategy evaluation</div>
+            <h1 class="backtest-title">Backtest Performance</h1>
+            <div class="backtest-description">
+                Compare the Decision Tree strategy with the ASX 200 benchmark
+                across return, downside risk, consistency and alpha-generation
+                measures using aligned weekly observations.
+            </div>
+            <div class="backtest-tags">
+                <span class="backtest-tag">Decision Tree Strategy</span>
+                <span class="backtest-tag">ASX 200 Benchmark</span>
+                <span class="backtest-tag">Weekly Returns</span>
+                <span class="backtest-tag">Walk-Forward Tested</span>
+                <span class="backtest-tag">Risk &amp; Alpha Analysis</span>
+            </div>
+        </div>
+        """
     )
-    
-    st.markdown("### Performance Highlights")
 
-    st.caption(
-        "Headline Decision Tree results compared with the ASX 200."
+    st.html(
+        """
+        <div class="section-header">
+            <div class="section-icon">◆</div>
+            <div>
+                <div class="section-title">Performance Highlights</div>
+                <div class="section-caption">
+                    Headline Decision Tree results compared with the ASX 200.
+                </div>
+            </div>
+        </div>
+        """
     )
-    
+
     render_backtest_metric_cards(
         strategy_metrics=portfolio_metrics,
         benchmark_metrics=asx_metrics_full,
         strategy_name="Decision Tree",
         benchmark_name="ASX 200"
     )
-    
-    st.markdown("### Portfolio Performance")
 
-    st.caption(
-        "Growth, downside risk and return characteristics "
-        "of the Decision Tree strategy relative to the ASX 200."
+    annual_return = portfolio_metrics.get("annual_return")
+    sharpe = portfolio_metrics.get("sharpe_ratio")
+    max_drawdown = portfolio_metrics.get("max_drawdown")
+    benchmark_return = asx_metrics_full.get("annual_return")
+
+    st.html(
+        f"""
+        <div class="backtest-takeaway">
+            <div class="takeaway-icon">★</div>
+            <div>
+                <div class="takeaway-title">Backtest Takeaway</div>
+                <div class="takeaway-text">
+                    The Decision Tree strategy generated an annualised return of
+                    <b>{annual_return:.1%}</b> versus <b>{benchmark_return:.1%}</b>
+                    for the ASX 200, with a Sharpe ratio of <b>{sharpe:.2f}</b>.
+                    Maximum drawdown was <b>{max_drawdown:.1%}</b>, indicating
+                    stronger return generation alongside meaningful but
+                    controlled downside variation.
+                </div>
+            </div>
+        </div>
+        """
     )
-    
-    performance_col, drawdown_col = st.columns(
-        2,
-        gap="large"
+
+    st.html(
+        """
+        <div class="section-header">
+            <div class="section-icon">↗</div>
+            <div>
+                <div class="section-title">Portfolio Performance</div>
+                <div class="section-caption">
+                    Growth, drawdowns and weekly-return characteristics relative to the benchmark.
+                </div>
+            </div>
+        </div>
+        """
     )
-    
-    selected_model = "Decision Tree"
+
+    performance_col, drawdown_col = st.columns(2, gap="large")
+
     with performance_col:
         render_cumulative_returns(
             strategy_returns=strategy_returns,
             benchmark_returns=asx_returns,
-            strategy_name=selected_model,
+            strategy_name="Decision Tree",
             benchmark_name="ASX 200"
         )
-    
+
     with drawdown_col:
         render_drawdown(
             strategy_returns=strategy_returns,
             benchmark_returns=asx_returns,
-            strategy_name=selected_model,
+            strategy_name="Decision Tree",
             benchmark_name="ASX 200"
         )
-    
-    left_column, right_column = st.columns(
-        2,
-        gap="large"
-    )
-    
-    print(portfolio_returns)
+
+    left_column, right_column = st.columns(2, gap="large")
 
     with left_column:
         render_return_summary(
@@ -203,8 +2275,7 @@ def render_backtesting():
             strategy_name="Decision Tree",
             benchmark_name="ASX 200"
         )
-    
-    
+
     alpha_analysis = AlphaMetrics(
         strategy_returns=strategy_returns,
         benchmark_returns=asx_returns,
@@ -214,6 +2285,18 @@ def render_backtesting():
 
     alpha_metrics = alpha_analysis.get_metrics()
 
-    st.write("## Alpha Analysis")
+    st.html(
+        """
+        <div class="section-header">
+            <div class="section-icon">α</div>
+            <div>
+                <div class="section-title">Alpha Analysis</div>
+                <div class="section-caption">
+                    Benchmark-adjusted return, market sensitivity and active-risk efficiency.
+                </div>
+            </div>
+        </div>
+        """
+    )
 
     render_alpha_metric_cards(alpha_metrics)
