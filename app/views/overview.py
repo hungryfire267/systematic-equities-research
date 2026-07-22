@@ -1,7 +1,119 @@
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+
+if str(BASE_DIR) not in sys.path:
+    sys.path.append(str(BASE_DIR))
+
+from scripts.portfolio.metrics import GetMetrics
+
+
+MODEL_DIRECTORIES = {
+    "dt": BASE_DIR / "results" / "backtest" / "dt",
+    "lightgbm": BASE_DIR / "results" / "backtest" / "lightgbm",
+    "xgboost": BASE_DIR / "results" / "backtest" / "xgboost",
+}
+
+
+def _load_selected_strategy() -> tuple[dict, pd.DataFrame, dict]:
+    """
+    Load the portfolio corresponding to the model-feature configuration
+    selected on the Model Comparison page.
+
+    Falls back to LightGBM + Stock Features when no selection has yet
+    been stored in Streamlit session state.
+    """
+    selected_configuration = st.session_state.get(
+        "selected_configuration",
+        {}
+    )
+
+    model_key = selected_configuration.get(
+        "model_key",
+        st.session_state.get(
+            "selected_model_key",
+            "lightgbm"
+        )
+    )
+
+    feature_key = selected_configuration.get(
+        "feature_key",
+        st.session_state.get(
+            "selected_feature_key",
+            "stock"
+        )
+    )
+
+    model_name = selected_configuration.get(
+        "model_name",
+        st.session_state.get(
+            "selected_model",
+            {
+                "dt": "Decision Tree",
+                "lightgbm": "LightGBM",
+                "xgboost": "XGBoost",
+            }.get(model_key, model_key)
+        )
+    )
+
+    feature_name = selected_configuration.get(
+        "feature_name",
+        st.session_state.get(
+            "selected_feature_set",
+            {
+                "stock": "Stock Features",
+                "market": "Stock + Market",
+            }.get(feature_key, feature_key)
+        )
+    )
+
+    if model_key not in MODEL_DIRECTORIES:
+        raise KeyError(
+            f"Unknown selected model key: {model_key}. "
+            f"Expected one of {sorted(MODEL_DIRECTORIES)}."
+        )
+
+    portfolio_path = (
+        MODEL_DIRECTORIES[model_key]
+        / f"final_portfolio_{feature_key}.parquet"
+    )
+
+    if not portfolio_path.exists():
+        raise FileNotFoundError(
+            f"Selected portfolio file was not found: {portfolio_path}"
+        )
+
+    portfolio_df = pd.read_parquet(portfolio_path)
+
+    portfolio_metrics, portfolio_returns = GetMetrics(
+        portfolio_df
+    ).run_data()
+
+    resolved_configuration = {
+        **selected_configuration,
+        "model_key": model_key,
+        "model_name": model_name,
+        "feature_key": feature_key,
+        "feature_name": feature_name,
+        "portfolio_path": str(portfolio_path),
+    }
+
+    # Keep every page synchronised with the resolved active strategy.
+    st.session_state["selected_configuration"] = resolved_configuration
+    st.session_state["selected_model"] = model_name
+    st.session_state["selected_feature_set"] = feature_name
+    st.session_state["selected_model_key"] = model_key
+    st.session_state["selected_feature_key"] = feature_key
+
+    return portfolio_metrics, portfolio_returns, resolved_configuration
+
 
 
 def _fmt_pct(value: float, decimals: int = 1) -> str:
@@ -228,8 +340,6 @@ def _create_weekly_return_chart(portfolio_returns: pd.DataFrame) -> go.Figure:
 
 
 def render_overview(
-    portfolio_metrics: dict,
-    portfolio_returns: pd.DataFrame,
     strategy_name: str = "Systematic ASX Equities Alpha Generation Platform",
 ) -> None:
     """
@@ -252,6 +362,48 @@ def render_overview(
     Optional:
         equity_curve
     """
+
+    # Always reload the portfolio selected on the Model Comparison page.
+    # This prevents old Decision Tree metrics passed by the calling page
+    # from overriding the current LightGBM strategy.
+    (
+        portfolio_metrics,
+        portfolio_returns,
+        selected_configuration,
+    ) = _load_selected_strategy()
+
+    selected_model = selected_configuration.get(
+        "model_name",
+        st.session_state.get("selected_model", "LightGBM")
+    )
+
+    selected_feature_set = selected_configuration.get(
+        "feature_name",
+        st.session_state.get(
+            "selected_feature_set",
+            "Stock Features"
+        )
+    )
+
+    selected_model_key = selected_configuration.get(
+        "model_key",
+        st.session_state.get("selected_model_key", "lightgbm")
+    )
+
+    selected_feature_key = selected_configuration.get(
+        "feature_key",
+        st.session_state.get("selected_feature_key", "stock")
+    )
+
+    feature_descriptions = {
+        "stock": "stock-specific and industry-level features",
+        "market": "stock-specific, industry and broader market features",
+    }
+
+    active_feature_description = feature_descriptions.get(
+        selected_feature_key,
+        selected_feature_set.lower()
+    )
 
     st.markdown(
         """
@@ -276,21 +428,6 @@ def render_overview(
             box-shadow: 0 12px 34px rgba(37, 99, 235, 0.08);
         }
 
-        .overview-kicker {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.45rem;
-            background: rgba(255,255,255,0.78);
-            border: 1px solid rgba(148,163,184,0.25);
-            border-radius: 999px;
-            padding: 0.38rem 0.72rem;
-            color: #2563EB;
-            font-size: 0.77rem;
-            font-weight: 800;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            margin-bottom: 0.8rem;
-        }
 
         .overview-title {
             margin: 0;
@@ -310,20 +447,31 @@ def render_overview(
             margin-bottom: 1rem;
         }
 
-        .overview-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.52rem;
+
+
+
+        .executive-summary-card {
+            margin-top: 0.15rem;
+            margin-bottom: 1.45rem;
+            padding: 1rem 1.2rem;
+            background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
+            border: 1px solid #DCE7F5;
+            border-left: 4px solid #2563EB;
+            border-radius: 14px;
+            box-shadow: 0 5px 18px rgba(15, 23, 42, 0.045);
         }
 
-        .overview-tag {
-            background: rgba(255,255,255,0.82);
-            border: 1px solid #D8E4F2;
-            border-radius: 999px;
-            padding: 0.42rem 0.72rem;
-            color: #334155;
-            font-size: 0.78rem;
-            font-weight: 750;
+        .executive-summary-title {
+            color: #0F172A;
+            font-size: 0.95rem;
+            font-weight: 850;
+            margin-bottom: 0.35rem;
+        }
+
+        .executive-summary-text {
+            color: #52647A;
+            font-size: 0.84rem;
+            line-height: 1.6;
         }
 
         .section-header {
@@ -552,19 +700,33 @@ def render_overview(
     st.markdown(
         f"""
         <div class="overview-hero">
-            <div class="overview-kicker">● Live research dashboard</div>
             <h1 class="overview-title">{strategy_name}</h1>
             <div class="overview-description">
-                Systematic long–short equity strategy across the ASX 200
-                universe, combining machine-learning return forecasts,
-                expanding-window validation and weekly portfolio construction.
+                A systematic research platform for testing machine-learning
+                stock-selection signals and translating forecasts into an
+                out-of-sample long–short equity strategy.
             </div>
-            <div class="overview-tags">
-                <span class="overview-tag">ASX 200 Universe</span>
-                <span class="overview-tag">Weekly Rebalancing</span>
-                <span class="overview-tag">Five-Day Forecast Horizon</span>
-                <span class="overview-tag">Dollar Neutral</span>
-                <span class="overview-tag">Walk-Forward Validated</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div class="executive-summary-card">
+            <div class="executive-summary-title">Executive Summary</div>
+            <div class="executive-summary-text">
+                This dashboard presents the automatically selected
+                <b>{selected_model} + {selected_feature_set}</b> configuration
+                for the systematic long–short ASX 200 strategy. All portfolio
+                metrics and charts below are loaded from this selected
+                model-feature backtest. The <b>{selected_model}</b>
+                cross-sectional regression model uses
+                {active_feature_description} to predict each stock’s five-day
+                forward return. Stocks are ranked by their forecasts
+                and used to form a weekly rebalanced, dollar-neutral portfolio
+                under expanding walk-forward validation. Reported results are
+                pre-cost and currently exclude transaction costs.
             </div>
         </div>
         """,

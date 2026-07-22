@@ -63,39 +63,6 @@ def render_methodology_lessons() -> None:
             margin-bottom: 0;
         }
 
-        .methodology-kicker {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.45rem;
-            background: rgba(255,255,255,0.82);
-            border: 1px solid rgba(99,102,241,0.20);
-            border-radius: 999px;
-            padding: 0.38rem 0.72rem;
-            color: #4F46E5;
-            font-size: 0.76rem;
-            font-weight: 800;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            margin-bottom: 0.75rem;
-        }
-
-        .methodology-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-top: 0.95rem;
-        }
-
-        .methodology-tag {
-            background: rgba(255,255,255,0.84);
-            border: 1px solid #D8E4F2;
-            border-radius: 999px;
-            padding: 0.4rem 0.72rem;
-            color: #334155;
-            font-size: 0.77rem;
-            font-weight: 750;
-        }
-
         .section-header {
             display: flex;
             align-items: flex-start;
@@ -484,7 +451,6 @@ def render_methodology_lessons() -> None:
     render_html(
         """
         <div class="methodology-hero">
-            <div class="methodology-kicker">● Technical project documentation</div>
             <div class="methodology-hero-title">
                 Methodology, Lessons &amp; Future Research
             </div>
@@ -497,14 +463,6 @@ def render_methodology_lessons() -> None:
                 deployment, lessons learned and future research directions.
             </p>
 
-            <div class="methodology-tags">
-                <span class="methodology-tag">Data Engineering</span>
-                <span class="methodology-tag">Feature Research</span>
-                <span class="methodology-tag">Machine Learning</span>
-                <span class="methodology-tag">Portfolio Construction</span>
-                <span class="methodology-tag">Backtesting</span>
-                <span class="methodology-tag">Cloud Deployment</span>
-            </div>
         </div>
         """
     )
@@ -782,10 +740,6 @@ def render_methodology_lessons() -> None:
                         <li>
                             Historical return calculation using realised
                             forward returns.
-                        </li>
-
-                        <li>
-                            Simplified transaction-cost adjustment.
                         </li>
 
                         <li>
@@ -1235,11 +1189,9 @@ def render_methodology_lessons() -> None:
             """
         ),
         (
-            "Transaction costs can change conclusions",
+            "Transaction costs remain an important extension",
             """
-            Small predictive advantages may disappear when portfolio turnover
-            and execution costs are included. Model evaluation should therefore
-            extend beyond gross returns.
+            Although the current backtest is frictionless, realistic execution costs may materially reduce realised returns, particularly for higher-turnover strategies. Incorporating dynamic transaction-cost modelling is therefore an important next step.
             """
         ),
         (
@@ -1478,7 +1430,7 @@ def render_methodology_lessons() -> None:
                 not simply a model-selection exercise. The predictive model is
                 only one component within a wider process involving data
                 engineering, feature design, chronological validation,
-                portfolio construction, backtesting and transaction costs.
+                portfolio construction and backtesting.
                 <br><br>
 
                 One of the main findings was that additional model complexity

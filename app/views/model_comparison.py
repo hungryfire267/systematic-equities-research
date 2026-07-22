@@ -3,10 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from scipy.stats import gaussian_kde
 import scipy.stats as stats
 from statsmodels.stats.contingency_tables import mcnemar
-from textwrap import dedent
 import os
 from pathlib import Path
 import sys
@@ -1784,6 +1782,166 @@ def render_hypothesis_card(
         st.caption("ALTERNATIVE HYPOTHESIS")
         st.latex(alternative_hypothesis)
 
+
+MODEL_DISPLAY_NAMES = {
+    "dt": "Decision Tree",
+    "lightgbm": "LightGBM",
+    "xgboost": "XGBoost"
+}
+
+FEATURE_DISPLAY_NAMES = {
+    "stock": "Stock Features",
+    "market": "Stock + Market"
+}
+
+
+def load_model_comparison_results() -> dict:
+    """Load every model-feature backtest and calculate its metrics."""
+
+    model_paths = {
+        "dt": BACKTEST_RESULTS_DT_DIR,
+        "lightgbm": BACKTEST_RESULTS_LIGHTGBM_DIR,
+        "xgboost": BACKTEST_RESULTS_XGBOOST_DIR
+    }
+
+    feature_sets = {
+        "stock": "final_portfolio_stock.parquet",
+        "market": "final_portfolio_market.parquet"
+    }
+
+    results = {}
+
+    for model_key, model_dir in model_paths.items():
+        results[model_key] = {}
+
+        for feature_key, filename in feature_sets.items():
+            portfolio_path = model_dir / filename
+
+            if not portfolio_path.exists():
+                raise FileNotFoundError(
+                    f"Backtest result not found: {portfolio_path}"
+                )
+
+            portfolio = pd.read_parquet(portfolio_path)
+
+            portfolio_metrics, returns = GetMetrics(
+                portfolio
+            ).run_data()
+
+            prediction_metrics, ic, hit = GetPredictionMetrics(
+                portfolio
+            ).run_data()
+
+            results[model_key][feature_key] = {
+                "portfolio_data": portfolio,
+                "metrics": {
+                    "prediction": prediction_metrics,
+                    "portfolio": portfolio_metrics
+                },
+                "returns": returns,
+                "ic": ic,
+                "hit": hit
+            }
+
+    return results
+
+
+def select_overall_configuration(results: dict) -> dict:
+    """
+    Select the best model-feature configuration.
+
+    Sharpe ratio is the primary model-selection criterion. Sortino ratio,
+    Calmar ratio, maximum drawdown and annual return are used as tie-breakers.
+    """
+
+    candidates = []
+
+    for model_key, feature_results in results.items():
+        for feature_key, result in feature_results.items():
+            portfolio = result["metrics"]["portfolio"]
+            prediction = result["metrics"]["prediction"]
+
+            candidates.append({
+                "model_key": model_key,
+                "model_name": MODEL_DISPLAY_NAMES[model_key],
+                "feature_key": feature_key,
+                "feature_name": FEATURE_DISPLAY_NAMES[feature_key],
+                "sharpe_ratio": portfolio["sharpe_ratio"],
+                "sortino_ratio": portfolio["sortino_ratio"],
+                "calmar_ratio": portfolio["calmar_ratio"],
+                "max_drawdown": portfolio["max_drawdown"],
+                "annual_return": portfolio["annual_return"],
+                "annual_volatility": portfolio["annual_volatility"],
+                "win_rate": portfolio["win_rate"],
+                "mae": prediction["mae"],
+                "mse": prediction.get(
+                    "mse",
+                    prediction["rmse"] ** 2
+                ),
+                "rmse": prediction["rmse"],
+                "mean_ic": prediction["mean_ic"],
+                "annualised_icir": prediction["annualised_icir"]
+            })
+
+    ranking = (
+        pd.DataFrame(candidates)
+        .sort_values(
+            by=[
+                "sharpe_ratio",
+                "sortino_ratio",
+                "calmar_ratio",
+                "max_drawdown",
+                "annual_return"
+            ],
+            ascending=[
+                False,
+                False,
+                False,
+                False,
+                False
+            ]
+        )
+        .reset_index(drop=True)
+    )
+
+    return {
+        "winner": ranking.iloc[0].to_dict(),
+        "ranking": ranking
+    }
+
+
+def select_prediction_winner(results: dict) -> dict:
+    """Select the configuration with the lowest RMSE, then lowest MAE."""
+
+    candidates = []
+
+    for model_key, feature_results in results.items():
+        for feature_key, result in feature_results.items():
+            prediction = result["metrics"]["prediction"]
+
+            candidates.append({
+                "model_name": MODEL_DISPLAY_NAMES[model_key],
+                "feature_name": FEATURE_DISPLAY_NAMES[feature_key],
+                "mae": prediction["mae"],
+                "mse": prediction.get(
+                    "mse",
+                    prediction["rmse"] ** 2
+                ),
+                "rmse": prediction["rmse"]
+            })
+
+    ranking = (
+        pd.DataFrame(candidates)
+        .sort_values(
+            by=["rmse", "mae"],
+            ascending=True
+        )
+        .reset_index(drop=True)
+    )
+
+    return ranking.iloc[0].to_dict()
+
+
 # ============================================================
 # Main Streamlit page
 # ============================================================
@@ -1793,6 +1951,15 @@ def render_model_comparison():
         page_title="Model Comparison",
         layout="wide"
     )
+
+    results = load_model_comparison_results()
+
+    selection = select_overall_configuration(results)
+    overall_result = selection["winner"]
+    prediction_winner = select_prediction_winner(results)
+
+    overall_model = overall_result["model_name"]
+    overall_feature_set = overall_result["feature_name"]
 
     st.html(
         """
@@ -1817,21 +1984,6 @@ def render_model_comparison():
             box-shadow: 0 12px 34px rgba(37,99,235,0.08);
         }
 
-        .model-kicker {
-            display:inline-flex;
-            align-items:center;
-            gap:0.45rem;
-            background:rgba(255,255,255,0.82);
-            border:1px solid rgba(99,102,241,0.20);
-            border-radius:999px;
-            padding:0.38rem 0.72rem;
-            color:#4F46E5;
-            font-size:0.76rem;
-            font-weight:800;
-            letter-spacing:0.05em;
-            text-transform:uppercase;
-            margin-bottom:0.75rem;
-        }
 
         .model-hero-title {
             margin:0;
@@ -1849,22 +2001,6 @@ def render_model_comparison():
             line-height:1.62;
         }
 
-        .model-tags {
-            display:flex;
-            flex-wrap:wrap;
-            gap:0.5rem;
-            margin-top:0.95rem;
-        }
-
-        .model-tag {
-            background:rgba(255,255,255,0.84);
-            border:1px solid #D8E4F2;
-            border-radius:999px;
-            padding:0.4rem 0.72rem;
-            color:#334155;
-            font-size:0.77rem;
-            font-weight:750;
-        }
 
         .model-info-banner {
             display:flex;
@@ -2091,7 +2227,6 @@ def render_model_comparison():
         </style>
 
         <div class="model-hero">
-            <div class="model-kicker">● Model evaluation</div>
             <h1 class="model-hero-title">Model Comparison</h1>
 
             <div class="model-hero-description">
@@ -2100,13 +2235,6 @@ def render_model_comparison():
                 validation, portfolio construction and transaction-cost rules.
             </div>
 
-            <div class="model-tags">
-                <span class="model-tag">Decision Tree</span>
-                <span class="model-tag">LightGBM</span>
-                <span class="model-tag">XGBoost</span>
-                <span class="model-tag">Walk-Forward Validated</span>
-                <span class="model-tag">Prediction &amp; Portfolio Analytics</span>
-            </div>
         </div>
 
         <div class="model-info-banner">
@@ -2119,14 +2247,6 @@ def render_model_comparison():
         </div>
         """
     )
-
-    # ------------------------------------------------------------
-    # OVERALL RECOMMENDATION
-    # ------------------------------------------------------------
-
-    overall_feature_set = "Stock + Market"
-    overall_model = "Decision Tree"
-
 
     # ------------------------------------------------------------
     # COLOURS
@@ -2178,39 +2298,76 @@ def render_model_comparison():
 
     feature_reasons = [
         (
-            "Incremental market information",
-            "ASX 200, sector and market-wide variables added useful context "
-            "beyond stock-specific features alone."
+            "Automated selection",
+            (
+                f"{overall_feature_set} produced the highest-ranked "
+                "model-feature configuration under the portfolio-selection "
+                "framework."
+            )
         ),
         (
-            "Strongest overall configuration",
-            "The Stock + Market feature set produced the best combined prediction "
-            "and realised portfolio outcome when paired with the Decision Tree."
+            "Risk-adjusted objective",
+            (
+                "Feature sets were compared using realised portfolio outcomes, "
+                "with Sharpe ratio used as the primary selection criterion."
+            )
         ),
         (
-            "Efficient complexity",
-            "It captured broader market conditions while retaining a compact and "
-            "interpretable feature set."
+            "Consistent experiment",
+            (
+                "Every configuration used identical walk-forward splits, "
+                "prediction horizons, transaction costs and portfolio rules."
+            )
         )
     ]
 
     model_reasons = [
         (
-            "Forecast accuracy",
-            "Recorded the lowest MAE and RMSE, providing the strongest "
-            "point-forecast accuracy across the candidate models."
+            "Risk-adjusted performance",
+            (
+                f"Achieved the selected highest Sharpe ratio of "
+                f"{overall_result['sharpe_ratio']:.2f}, alongside a Sortino "
+                f"ratio of {overall_result['sortino_ratio']:.2f}."
+            )
         ),
         (
-            "Portfolio performance",
-            "Generated the highest annual return and the strongest overall "
-            "realised portfolio outcome for the selected feature set."
+            "Downside control",
+            (
+                f"Recorded a maximum drawdown of "
+                f"{overall_result['max_drawdown']:.1%} and a Calmar ratio of "
+                f"{overall_result['calmar_ratio']:.2f}."
+            )
         ),
         (
-            "Simplicity and interpretability",
-            "Delivered competitive risk-adjusted performance using a simpler "
-            "and more transparent model than the boosting alternatives."
+            "Realised portfolio outcome",
+            (
+                f"Generated an annual return of "
+                f"{overall_result['annual_return']:.1%} with annual volatility "
+                f"of {overall_result['annual_volatility']:.1%}."
+            )
         )
     ]
+
+    same_prediction_and_portfolio_winner = (
+        prediction_winner["model_name"] == overall_model
+        and prediction_winner["feature_name"] == overall_feature_set
+    )
+
+    if same_prediction_and_portfolio_winner:
+        prediction_takeaway = (
+            f"{overall_model} also achieved the lowest forecast error. "
+            "For this experiment, prediction accuracy and realised portfolio "
+            "performance were aligned."
+        )
+    else:
+        prediction_takeaway = (
+            f"{prediction_winner['model_name']} using "
+            f"{prediction_winner['feature_name']} achieved the lowest RMSE, "
+            f"while {overall_model} using {overall_feature_set} generated the "
+            "strongest risk-adjusted portfolio. Stronger point-forecast "
+            "accuracy therefore did not translate directly into superior "
+            "investment performance."
+        )
 
 
     # ------------------------------------------------------------
@@ -2450,31 +2607,78 @@ def render_model_comparison():
 
             '</div>'
 
-            '<div class="overall-recommendation-card">'
-                '<div class="overall-recommendation-title">'
-                    'Overall recommended configuration'
-                '</div>'
+            f"""
+            <div class="overall-recommendation-card">
+                <div class="overall-recommendation-title">
+                    Overall recommended configuration
+                </div>
 
-                '<span class="overall-recommendation-name">'
-                    f'{overall_model} using {overall_feature_set} features'
-                '</span>'
+                <div style="
+                    display:flex;
+                    flex-wrap:wrap;
+                    gap:0.45rem;
+                    margin:0.55rem 0 0.75rem 0;
+                ">
+                    <span style="
+                        background:{model_colours["background"]};
+                        border:1px solid {model_colours["border"]};
+                        color:{model_colours["dark"]};
+                        border-radius:999px;
+                        padding:0.3rem 0.65rem;
+                        font-size:0.74rem;
+                        font-weight:800;
+                    ">
+                        {overall_model}
+                    </span>
 
-                ' provides the strongest observed balance of forecast accuracy, '
-                'realised portfolio performance, risk-adjusted returns and model '
-                'interpretability. Market and sector features added useful information '
-                'beyond stock-specific inputs, while the Decision Tree converted those '
-                'signals into the strongest overall portfolio outcome. The detailed '
-                'feature-set tabs below provide the supporting prediction, performance '
-                'and hypothesis-testing evidence.'
-            '</div>'
+                    <span style="
+                        background:{feature_colours["background"]};
+                        border:1px solid {feature_colours["border"]};
+                        color:{feature_colours["dark"]};
+                        border-radius:999px;
+                        padding:0.3rem 0.65rem;
+                        font-size:0.74rem;
+                        font-weight:800;
+                    ">
+                        {overall_feature_set}
+                    </span>
+
+                    <span style="
+                        background:#EFF6FF;
+                        border:1px solid #BFDBFE;
+                        color:#1D4ED8;
+                        border-radius:999px;
+                        padding:0.3rem 0.65rem;
+                        font-size:0.74rem;
+                        font-weight:800;
+                    ">
+                        Sharpe {overall_result["sharpe_ratio"]:.2f}
+                    </span>
+                </div>
+
+                <div>
+                    <strong>{overall_model} using {overall_feature_set}</strong>
+                    was selected automatically because it produced the strongest
+                    risk-adjusted portfolio. Selection prioritises Sharpe ratio,
+                    supported by Sortino ratio, drawdown, Calmar ratio and annual
+                    return.
+                </div>
+
+                <div style="
+                    margin-top:0.75rem;
+                    padding-top:0.75rem;
+                    border-top:1px solid #CBD5E1;
+                ">
+                    <strong>Key takeaway:</strong>
+                    {prediction_takeaway}
+                </div>
+            </div>
+            """
 
         '</div>'
     )
 
-    st.markdown(
-        overall_summary_html,
-        unsafe_allow_html=True
-    )
+    st.html(overall_summary_html)
 
     st.html(
         """
@@ -2513,39 +2717,9 @@ def render_model_comparison():
         ]
     )
 
-    model_paths = {
-        "dt": BACKTEST_RESULTS_DT_DIR,
-        "lightgbm": BACKTEST_RESULTS_LIGHTGBM_DIR, 
-        "xgboost": BACKTEST_RESULTS_XGBOOST_DIR
-    }
-
-    feature_sets = {
-        "stock": "final_portfolio_stock.parquet",
-        "market": "final_portfolio_market.parquet",
-    }
-
-    results = {}
-    for model_name, model_dir in model_paths.items(): 
-        results[model_name] = {}
-        for feature_name, filename in feature_sets.items():
-            portfolio = pd.read_parquet(os.path.join(model_dir, filename))
-            portfolio_metrics, returns = GetMetrics(portfolio).run_data()
-            prediction_metrics, ic, hit = GetPredictionMetrics(portfolio).run_data()
-            
-            results[model_name][feature_name] = {
-                "portfolio_data": portfolio,
-                "metrics": {
-                    "prediction": prediction_metrics,
-                    "portfolio": portfolio_metrics
-                },
-                "returns": returns,
-                "ic": ic, 
-                "hit": hit
-            }
-
-
     hit_contingency_tables = {}
-    for feature_name in feature_sets:
+
+    for feature_name in results["dt"].keys():
         decision_tree_hit = results["dt"][feature_name]["hit"]
         lightgbm_hit = results["lightgbm"][feature_name]["hit"]
 

@@ -84,7 +84,7 @@ portfolio_returns = (
 selected_page = render_sidebar()
 
 if selected_page == "🏠  Overview":
-    render_overview(portfolio_metrics, portfolio_returns)
+    render_overview()
 elif selected_page == "📊  Portfolio":
     render_portfolio()
 elif selected_page == "📈  Backtest Performance": 

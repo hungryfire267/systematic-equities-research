@@ -19,14 +19,16 @@ macro_paths_dict = {
     "vix": os.path.join(MACRO_DIR, "vix.parquet")
 }
 
-end_date = dt.date(2026, 6, 14)
-start_date = end_date - dt.timedelta(days=1461)
+if __name__ == "__main__":
+    end_date = dt.date(2026, 6, 14)
+    end_date = dt.datetime.today().date()
+    start_date = end_date - dt.timedelta(days=1461)
 
-cr_data = CurrencyRates(start_date, end_date).run_data()
-ir_data = InterestRates(start_date, end_date).run_data()
-vix_data = VIX(start_date, end_date).run_data()
+    cr_data = CurrencyRates(start_date, end_date).run_data()
+    ir_data = InterestRates(start_date, end_date).run_data()
+    vix_data = VIX(start_date, end_date).run_data()
 
-cr_data.to_parquet(macro_paths_dict["currency_rates"], index=False, engine="pyarrow")
-ir_data.to_parquet(macro_paths_dict["interest_rates"], index=False, engine="pyarrow")
-vix_data.to_parquet(macro_paths_dict["vix"], index=False, engine="pyarrow")
+    cr_data.to_parquet(macro_paths_dict["currency_rates"], index=False, engine="pyarrow")
+    ir_data.to_parquet(macro_paths_dict["interest_rates"], index=False, engine="pyarrow")
+    vix_data.to_parquet(macro_paths_dict["vix"], index=False, engine="pyarrow")
 

@@ -221,23 +221,71 @@ class ASXPipeline:
     
     def get_sector_returns(self) -> pd.DataFrame:
         print("Retrieving industry returns ...")
-        market_cap_df = self.market_cap
-        returns_df = pd.read_parquet(self.company_paths_dict["returns"])
-        sector_list = self.companies_df["industry"].unique().tolist()
+
+        market_cap_df = self.market_cap.copy()
+        returns_df = self.returns.copy()
+
+        market_cap_df["Date"] = pd.to_datetime(market_cap_df["Date"])
+        returns_df["Date"] = pd.to_datetime(returns_df["Date"])
+
+        merged = returns_df.merge(
+            market_cap_df,
+            on="Date",
+            how="inner",
+            suffixes=("_return", "_market_cap")
+        )
+
         industry_return_dict = {}
-        for industry in tqdm(sector_list, desc="Calculating industry returns"): 
-            industry_df = self.companies_df[self.companies_df["industry"] == industry]
-            industry_companies_list = [str(company) + ".AX" for company in industry_df["asxCode"].unique().tolist()]
-            industry_market_cap_df = market_cap_df[industry_companies_list]
-            weights = industry_market_cap_df.div(industry_market_cap_df.sum(axis=1), axis=0)
-            company_returns = returns_df[industry_companies_list]
-            industry_returns = (weights * company_returns).sum(axis=1)
-            industry_returns.index = market_cap_df["Date"]
-            industry_returns.name = industry
-            industry_returns.iloc[0] = np.nan     
-            industry_return_dict[industry] = industry_returns
-        industry_return_df = pd.DataFrame(industry_return_dict).reset_index()
-        return industry_return_df
+
+        for industry in tqdm(
+            self.companies_df["industry"].dropna().unique(),
+            desc="Calculating industry returns"
+        ):
+            industry_codes = (
+                self.companies_df.loc[
+                    self.companies_df["industry"] == industry,
+                    "asxCode"
+                ]
+                .astype(str)
+                .str.strip()
+                .add(".AX")
+                .tolist()
+            )
+
+            available_codes = [
+                ticker
+                for ticker in industry_codes
+                if f"{ticker}_return" in merged.columns
+                and f"{ticker}_market_cap" in merged.columns
+            ]
+
+            if not available_codes:
+                continue
+
+            returns = merged[
+                [f"{ticker}_return" for ticker in available_codes]
+            ].copy()
+
+            market_caps = merged[
+                [f"{ticker}_market_cap" for ticker in available_codes]
+            ].copy()
+
+            returns.columns = available_codes
+            market_caps.columns = available_codes
+
+            weights = market_caps.div(
+                market_caps.sum(axis=1).replace(0, np.nan),
+                axis=0
+            )
+
+            industry_return_dict[industry] = (
+                returns.mul(weights).sum(axis=1, min_count=1)
+            )
+
+        return pd.DataFrame({
+            "Date": merged["Date"],
+            **industry_return_dict
+        })
     
     def get_equity(self, bs: pd.DataFrame) -> pd.Series | None:
         if "Total Stockholder Equity" in list(bs.index):
