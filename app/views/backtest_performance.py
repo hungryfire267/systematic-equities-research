@@ -20,13 +20,13 @@ sys.path.append(str(BASE_DIR))
 load_dotenv()
 
 api_key = st.secrets.get(
-    "GEMINI_API_KEY",
-    os.getenv("GEMINI_API_KEY")
+    "GOOGLE_API_KEY",
+    os.getenv("GOOGLE_API_KEY")
 )
 
 if not api_key:
     raise ValueError(
-        "GEMINI_API_KEY was not found in Streamlit secrets or the environment."
+        "GOOGLE_API_KEY was not found in Streamlit secrets or the environment."
     )
 
 gemini_client = genai.Client(api_key=api_key)
