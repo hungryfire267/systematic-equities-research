@@ -17,7 +17,7 @@ from scripts.portfolio.metrics import GetMetrics
 
 st.set_page_config(
     page_title="ASX Alpha System",
-    page_icon="◎",
+    page_icon="🏠",
     layout="wide"
 )
 

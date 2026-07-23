@@ -362,6 +362,12 @@ def render_overview(
     Optional:
         equity_curve
     """
+    
+    st.set_page_config(
+        page_title="ASX Alpha System - Overview",
+        page_icon="🏠",
+        layout="wide"
+    )
 
     # Always reload the portfolio selected on the Model Comparison page.
     # This prevents old Decision Tree metrics passed by the calling page
