@@ -448,30 +448,47 @@ def render_overview(
         }
 
 
-
-
-        .executive-summary-card {
-            margin-top: 0.15rem;
-            margin-bottom: 1.45rem;
-            padding: 1rem 1.2rem;
-            background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
+        .latest-rebalance {
+            display: inline-flex;
+            align-items: center;
+            margin-top: 0.1rem;
+            margin-bottom: 1.2rem;
+            padding: 0.38rem 0.68rem;
+            border-radius: 999px;
+            background: #FFFFFF;
             border: 1px solid #DCE7F5;
-            border-left: 4px solid #2563EB;
-            border-radius: 14px;
-            box-shadow: 0 5px 18px rgba(15, 23, 42, 0.045);
+            color: #64748B;
+            font-size: 0.73rem;
+            font-weight: 700;
         }
 
-        .executive-summary-title {
-            color: #0F172A;
-            font-size: 0.95rem;
-            font-weight: 850;
-            margin-bottom: 0.35rem;
+
+
+
+        .recruiter-overview-list {
+            margin: 0.15rem 0 1.45rem 0;
+            padding-left: 1.35rem;
+            color: #475569;
+            font-size: 0.88rem;
+            line-height: 1.65;
         }
 
-        .executive-summary-text {
-            color: #52647A;
-            font-size: 0.84rem;
-            line-height: 1.6;
+        .recruiter-overview-list li {
+            margin-bottom: 0.45rem;
+            padding-left: 0.15rem;
+        }
+
+        .recruiter-overview-list li:last-child {
+            margin-bottom: 0;
+        }
+
+        .recruiter-overview-list li::marker {
+            color: #2563EB;
+        }
+
+        .recruiter-overview-list strong {
+            color: #1E293B;
+            font-weight: 800;
         }
 
         .section-header {
@@ -488,6 +505,26 @@ def render_overview(
             font-size: 1.3rem;
             font-weight: 850;
             line-height: 1.2;
+        }
+
+        .section-heading-main {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.65rem;
+        }
+
+        .section-symbol {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 2rem;
+            height: 2rem;
+            flex: 0 0 2rem;
+            border-radius: 10px;
+            background: #EFF6FF;
+            color: #2563EB;
+            font-size: 0.95rem;
+            font-weight: 850;
         }
 
         .section-caption {
@@ -605,12 +642,13 @@ def render_overview(
             border-radius: 17px;
             padding: 1rem 1.05rem;
             box-shadow: 0 5px 18px rgba(15, 23, 42, 0.045);
+            text-align: center;
         }
 
         .supporting-stat-label {
-            color: #64748B;
-            font-size: 0.76rem;
-            font-weight: 800;
+            color: #334155;
+            font-size: 0.78rem;
+            font-weight: 900;
             margin-bottom: 0.4rem;
         }
 
@@ -620,6 +658,7 @@ def render_overview(
             font-weight: 850;
             line-height: 1.1;
             margin-bottom: 0.42rem;
+            text-align: center;
         }
 
         .supporting-stat-note {
@@ -674,8 +713,39 @@ def render_overview(
             line-height: 1.48;
         }
 
-        div[data-testid="stSegmentedControl"] {
-            margin-bottom: 0.65rem;
+        div[data-testid="stTabs"] {
+            margin-top: 0.15rem;
+        }
+
+        div[data-testid="stTabs"]
+        [data-baseweb="tab-list"] {
+            gap: 0.35rem;
+            border-bottom: 1px solid #DCE3EC;
+        }
+
+        div[data-testid="stTabs"] button[role="tab"] {
+            padding: 0.58rem 1rem;
+            border: 1px solid #DCE3EC !important;
+            border-bottom: none !important;
+            border-radius: 11px 11px 0 0 !important;
+            background: #F8FAFC !important;
+            color: #334155 !important;
+            box-shadow: none !important;
+            font-weight: 650;
+        }
+
+        div[data-testid="stTabs"]
+        button[role="tab"]:hover {
+            background: #EFF6FF !important;
+            color: #1D4ED8 !important;
+        }
+
+        div[data-testid="stTabs"]
+        button[role="tab"][aria-selected="true"] {
+            background: #EFF6FF !important;
+            border-color: #BFDBFE !important;
+            color: #1D4ED8 !important;
+            font-weight: 750 !important;
         }
 
         @media (max-width: 900px) {
@@ -697,6 +767,18 @@ def render_overview(
     calmar = float(portfolio_metrics["calmar_ratio"])
     worst_week = float(portfolio_metrics["worst_week"])
 
+
+    latest_rebalance_date = pd.to_datetime(
+        portfolio_returns["Date"],
+        errors="coerce",
+    ).max()
+
+    if pd.isna(latest_rebalance_date):
+        raise ValueError(
+            "The selected overview backtest does not contain a valid "
+            "rebalance date."
+        )
+
     st.markdown(
         f"""
         <div class="overview-hero">
@@ -711,24 +793,49 @@ def render_overview(
         unsafe_allow_html=True,
     )
 
+
     st.markdown(
         f"""
-        <div class="executive-summary-card">
-            <div class="executive-summary-title">Executive Summary</div>
-            <div class="executive-summary-text">
-                This dashboard presents the automatically selected
-                <b>{selected_model} + {selected_feature_set}</b> configuration
-                for the systematic long–short ASX 200 strategy. All portfolio
-                metrics and charts below are loaded from this selected
-                model-feature backtest. The <b>{selected_model}</b>
-                cross-sectional regression model uses
-                {active_feature_description} to predict each stock’s five-day
-                forward return. Stocks are ranked by their forecasts
-                and used to form a weekly rebalanced, dollar-neutral portfolio
-                under expanding walk-forward validation. Reported results are
-                pre-cost and currently exclude transaction costs.
+        <div class="latest-rebalance">
+            Latest rebalance: {latest_rebalance_date:%d %B %Y}
+            &nbsp;&nbsp; {selected_model} + {selected_feature_set}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div class="section-header">
+            <div class="section-heading-main">
+                <div class="section-symbol">◎</div>
+                <div>
+                    <div class="section-title">Overview</div>
+                    <div class="section-caption">
+                        A straightforward summary of the strategy and its purpose.
+                    </div>
+                </div>
             </div>
         </div>
+
+        <ul class="recruiter-overview-list">
+            <li>
+                <strong>What it does:</strong> The platform compares ASX stocks
+                and identifies those expected to perform relatively well or
+                poorly over the next five trading days.
+            </li>
+            <li>
+                <strong>Selected approach:</strong>
+                <b>{selected_model} + {selected_feature_set}</b> produced the
+                strongest balance of return and risk in the historical
+                evaluation.
+            </li>
+            <li>
+                <strong>How it is used:</strong> The portfolio is refreshed
+                weekly using the latest rankings. Results are shown before
+                transaction costs, which remain an important limitation.
+            </li>
+        </ul>
         """,
         unsafe_allow_html=True,
     )
@@ -736,10 +843,13 @@ def render_overview(
     st.markdown(
         """
         <div class="section-header">
-            <div>
-                <div class="section-title">Portfolio Performance</div>
-                <div class="section-caption">
-                    Core return, risk and consistency measures from the selected backtest.
+            <div class="section-heading-main">
+                <div class="section-symbol">↗</div>
+                <div>
+                    <div class="section-title">Portfolio Performance</div>
+                    <div class="section-caption">
+                        Core return, risk and consistency measures from the selected backtest.
+                    </div>
                 </div>
             </div>
         </div>
@@ -799,10 +909,13 @@ def render_overview(
     st.markdown(
         """
         <div class="section-header">
-            <div>
-                <div class="section-title">Strategy Performance</div>
-                <div class="section-caption">
-                    Explore cumulative growth, portfolio drawdowns and weekly return behaviour.
+            <div class="section-heading-main">
+                <div class="section-symbol">📈</div>
+                <div>
+                    <div class="section-title">Strategy Performance</div>
+                    <div class="section-caption">
+                        Explore cumulative growth, portfolio drawdowns and weekly return behaviour.
+                    </div>
                 </div>
             </div>
         </div>
@@ -810,25 +923,34 @@ def render_overview(
         unsafe_allow_html=True,
     )
 
-    selected_view = st.segmented_control(
-        "Performance view",
-        options=["Equity Curve", "Drawdown", "Weekly Returns"],
-        default="Equity Curve",
-        label_visibility="collapsed",
+    equity_tab, drawdown_tab, weekly_returns_tab = st.tabs(
+        [
+            "Equity Curve",
+            "Drawdown",
+            "Weekly Returns",
+        ]
     )
 
-    with st.container(border=False):
-        st.markdown('<div class="performance-shell">', unsafe_allow_html=True)
+    with equity_tab:
+        st.plotly_chart(
+            _create_equity_curve(portfolio_returns),
+            use_container_width=True,
+            key="overview_equity_curve",
+        )
 
-        if selected_view == "Drawdown":
-            chart = _create_drawdown_chart(portfolio_returns)
-        elif selected_view == "Weekly Returns":
-            chart = _create_weekly_return_chart(portfolio_returns)
-        else:
-            chart = _create_equity_curve(portfolio_returns)
+    with drawdown_tab:
+        st.plotly_chart(
+            _create_drawdown_chart(portfolio_returns),
+            use_container_width=True,
+            key="overview_drawdown",
+        )
 
-        st.plotly_chart(chart, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    with weekly_returns_tab:
+        st.plotly_chart(
+            _create_weekly_return_chart(portfolio_returns),
+            use_container_width=True,
+            key="overview_weekly_returns",
+        )
 
     return_quality = (
         "strong"
@@ -860,10 +982,13 @@ def render_overview(
     st.markdown(
         """
         <div class="section-header">
-            <div>
-                <div class="section-title">Additional Statistics</div>
-                <div class="section-caption">
-                    Supporting measures describing volatility, downside risk and return efficiency.
+            <div class="section-heading-main">
+                <div class="section-symbol">▦</div>
+                <div>
+                    <div class="section-title">Additional Statistics</div>
+                    <div class="section-caption">
+                        Supporting measures describing volatility, downside risk and return efficiency.
+                    </div>
                 </div>
             </div>
         </div>
@@ -911,10 +1036,13 @@ def render_overview(
     st.markdown(
         """
         <div class="section-header">
-            <div>
-                <div class="section-title">Strategy Snapshot</div>
-                <div class="section-caption">
-                    A concise overview of how predictions become portfolio decisions.
+            <div class="section-heading-main">
+                <div class="section-symbol">✦</div>
+                <div>
+                    <div class="section-title">Strategy Snapshot</div>
+                    <div class="section-caption">
+                        A concise overview of how predictions become portfolio decisions.
+                    </div>
                 </div>
             </div>
         </div>

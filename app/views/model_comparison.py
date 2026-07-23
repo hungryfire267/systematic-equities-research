@@ -1961,6 +1961,21 @@ def render_model_comparison():
     overall_model = overall_result["model_name"]
     overall_feature_set = overall_result["feature_name"]
 
+    latest_rebalance_date = max(
+        pd.to_datetime(
+            result["portfolio_data"]["Date"],
+            errors="coerce"
+        ).max()
+        for feature_results in results.values()
+        for result in feature_results.values()
+    )
+
+    if pd.isna(latest_rebalance_date):
+        raise ValueError(
+            "The model-comparison results do not contain a valid "
+            "rebalance date."
+        )
+
     st.html(
         """
         <style>
@@ -1999,6 +2014,19 @@ def render_model_comparison():
             color:#52647A;
             font-size:0.96rem;
             line-height:1.62;
+        }
+
+        .latest-rebalance {
+            display:inline-flex;
+            align-items:center;
+            margin:0 0 0.25rem 0;
+            padding:0.38rem 0.68rem;
+            border-radius:999px;
+            background:rgba(255,255,255,0.78);
+            border:1px solid #DCE7F5;
+            color:#64748B;
+            font-size:0.73rem;
+            font-weight:700;
         }
 
 
@@ -2237,6 +2265,23 @@ def render_model_comparison():
 
         </div>
 
+        <div class="latest-rebalance">
+            Latest rebalance: __LATEST_REBALANCE_DATE__
+        </div>
+
+        <div class="comparison-section-header">
+            <div class="comparison-section-icon">&#9733;</div>
+            <div>
+                <div class="comparison-section-title">
+                    Executive Summary
+                </div>
+                <div class="comparison-section-description">
+                    Automated recommendation based on out-of-sample
+                    portfolio performance.
+                </div>
+            </div>
+        </div>
+
         <div class="model-info-banner">
             <div class="model-info-icon">i</div>
             <div>
@@ -2245,7 +2290,10 @@ def render_model_comparison():
                 portfolio construction rules.
             </div>
         </div>
-        """
+        """.replace(
+            "__LATEST_REBALANCE_DATE__",
+            latest_rebalance_date.strftime("%d %B %Y")
+        )
     )
 
     # ------------------------------------------------------------
@@ -2525,11 +2573,6 @@ def render_model_comparison():
 
     overall_summary_html = (
         '<div class="overall-summary-wrapper">'
-
-            '<div class="overall-summary-heading">'
-                '<span>◆</span>'
-                '<span>Executive Summary</span>'
-            '</div>'
 
             '<div class="overall-summary-grid">'
 

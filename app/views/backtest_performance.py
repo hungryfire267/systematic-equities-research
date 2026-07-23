@@ -168,6 +168,17 @@ def _load_selected_backtest() -> tuple[
 ) = _load_selected_backtest()
 
 
+LATEST_REBALANCE_DATE = pd.to_datetime(
+    portfolio_returns["Date"],
+    errors="coerce",
+).max()
+
+if pd.isna(LATEST_REBALANCE_DATE):
+    raise ValueError(
+        "The selected backtest does not contain a valid rebalance date."
+    )
+
+
 # ---------------------------------------------------------
 # 4. Load the daily ASX 200 index prices
 # ---------------------------------------------------------
@@ -240,6 +251,20 @@ BACKTEST_PAGE_CSS = """
     color: #52647A;
     font-size: 0.96rem;
     line-height: 1.62;
+}
+
+
+.latest-rebalance {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 0.85rem;
+    padding: 0.38rem 0.68rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.78);
+    border: 1px solid #DCE7F5;
+    color: #64748B;
+    font-size: 0.73rem;
+    font-weight: 700;
 }
 
 .section-header {
@@ -327,13 +352,14 @@ BACKTEST_PAGE_CSS = """
     border: 1px solid var(--alpha-border);
     background: linear-gradient(145deg, #FFFFFF 0%, var(--alpha-bg) 155%);
     box-shadow: 0 6px 18px rgba(15,23,42,0.045);
+    text-align: center;
 }
 
 .alpha-label {
-    color: #64748B;
-    font-size: 0.75rem;
-    font-weight: 800;
-    margin-bottom: 0.45rem;
+    color: #334155;
+    font-size: 0.78rem;
+    font-weight: 900;
+    margin-bottom: 0.65rem;
 }
 
 .alpha-value {
@@ -341,13 +367,15 @@ BACKTEST_PAGE_CSS = """
     font-size: 1.45rem;
     font-weight: 850;
     line-height: 1.1;
-    margin-bottom: 0.42rem;
+    margin-bottom: 0.58rem;
+    text-align: center;
 }
 
 .alpha-note {
     color: #64748B;
     font-size: 0.69rem;
     line-height: 1.4;
+    text-align: center;
 }
 
 div[data-testid="stPlotlyChart"] {
@@ -586,18 +614,18 @@ def render_backtest_metric_cards(
                 headline-metric-card
                 {metric["card_class"]}
             ">
+                <div class="headline-metric-label">
+                    {escape(metric["label"])}
+                </div>
+
                 <div class="headline-metric-top">
                     <div class="headline-metric-symbol">
                         {metric["symbol"]}
                     </div>
 
-                    <div class="headline-metric-label">
-                        {escape(metric["label"])}
+                    <div class="headline-metric-value">
+                        {formatted_value}
                     </div>
-                </div>
-
-                <div class="headline-metric-value">
-                    {formatted_value}
                 </div>
 
                 <div class="headline-metric-strategy">
@@ -689,6 +717,7 @@ def render_backtest_metric_cards(
                 border-radius: 13px;
                 box-sizing: border-box;
                 box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+                text-align: center;
             }}
 
             .annual-return-card {{
@@ -719,8 +748,10 @@ def render_backtest_metric_cards(
             .headline-metric-top {{
                 display: flex;
                 align-items: center;
+                justify-content: center;
                 gap: 8px;
                 min-width: 0;
+                margin-top: 14px;
             }}
 
             .headline-metric-symbol {{
@@ -762,28 +793,30 @@ def render_backtest_metric_cards(
 
             .headline-metric-label {{
                 overflow: hidden;
-                color: #475569;
+                color: #334155;
                 font-size: 12px;
-                font-weight: 700;
+                font-weight: 850;
                 line-height: 1.3;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+                text-align: center;
             }}
 
             .headline-metric-value {{
-                margin-top: 14px;
                 color: #0F172A;
                 font-size: 25px;
                 font-weight: 800;
                 line-height: 1;
                 font-variant-numeric: tabular-nums;
+                text-align: center;
             }}
 
             .headline-metric-strategy {{
-                margin-top: 6px;
+                margin-top: 10px;
                 color: #64748B;
                 font-size: 11px;
                 font-weight: 600;
+                text-align: center;
             }}
 
             .headline-metric-delta {{
@@ -791,6 +824,7 @@ def render_backtest_metric_cards(
                 font-size: 11px;
                 font-weight: 700;
                 line-height: 1.3;
+                text-align: center;
             }}
 
             .metric-card-delta-positive {{
@@ -2506,6 +2540,15 @@ def render_backtesting():
                 ASX 200 benchmark across return, downside risk, consistency
                 and alpha-generation measures using aligned weekly observations.
             </div>
+        </div>
+        """
+    )
+
+    st.html(
+        f"""
+        <div class="latest-rebalance">
+            Latest rebalance: {LATEST_REBALANCE_DATE:%d %B %Y}
+            &nbsp;&nbsp; {STRATEGY_NAME}
         </div>
         """
     )

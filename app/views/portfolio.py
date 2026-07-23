@@ -256,8 +256,8 @@ PORTFOLIO_CSS = """
     --card-soft: #DBEAFE;
     position: relative;
     overflow: hidden;
-    min-height: 145px;
-    padding: 1rem 0.8rem 0.9rem;
+    min-height: 150px;
+    padding: 1.05rem 0.8rem 0.95rem;
     border-radius: 18px;
     border: 1px solid color-mix(in srgb, var(--card-accent) 24%, #E2E8F0);
     background: linear-gradient(145deg, #FFFFFF 0%, var(--card-soft) 160%);
@@ -288,8 +288,6 @@ PORTFOLIO_CSS = """
     justify-content: center;
     width: 2.25rem;
     height: 2.25rem;
-    margin-top: 0.15rem;
-    margin-bottom: 0.55rem;
     border-radius: 999px;
     background: var(--card-soft);
     color: var(--card-accent);
@@ -299,15 +297,23 @@ PORTFOLIO_CSS = """
 
 .portfolio-card-title {
     color: #334155;
-    font-size: 0.72rem;
-    font-weight: 800;
+    font-size: 0.74rem;
+    font-weight: 850;
     text-align: center;
 }
 
+.portfolio-card-metric {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    width: 100%;
+    margin-top: 0.75rem;
+}
+
 .portfolio-card-value {
-    margin-top: 0.38rem;
     color: var(--card-accent);
-    font-size: 1.62rem;
+    font-size: 1.58rem;
     font-weight: 850;
     line-height: 1;
     text-align: center;
@@ -315,7 +321,7 @@ PORTFOLIO_CSS = """
 }
 
 .portfolio-card-subtitle {
-    margin-top: 0.5rem;
+    margin-top: 0.72rem;
     color: #64748B;
     font-size: 0.67rem;
     line-height: 1.35;
@@ -476,9 +482,11 @@ def render_portfolio_card(
     st.html(
         f"""
         <div class="portfolio-card {card_class}">
-            <div class="portfolio-card-icon">{icon}</div>
             <div class="portfolio-card-title">{title}</div>
-            <div class="portfolio-card-value">{value}</div>
+            <div class="portfolio-card-metric">
+                <div class="portfolio-card-icon">{icon}</div>
+                <div class="portfolio-card-value">{value}</div>
+            </div>
             <div class="portfolio-card-subtitle">{subtitle}</div>
         </div>
         """
@@ -815,8 +823,8 @@ def render_portfolio() -> None:
     st.html(
         f"""
         <div class="latest-date">
-            🗓 Latest rebalance: {latest_date:%d %B %Y}
-            &nbsp;·&nbsp; {selected_model} + {selected_feature_set}
+            Latest rebalance: {latest_date:%d %B %Y}
+            &nbsp;&nbsp; {selected_model} + {selected_feature_set}
         </div>
         """
     )
