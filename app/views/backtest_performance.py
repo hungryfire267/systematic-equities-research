@@ -18,7 +18,18 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(BASE_DIR))
 
 load_dotenv()
-gemini_client = genai.Client()
+
+api_key = st.secrets.get(
+    "GEMINI_API_KEY",
+    os.getenv("GEMINI_API_KEY")
+)
+
+if not api_key:
+    raise ValueError(
+        "GEMINI_API_KEY was not found in Streamlit secrets or the environment."
+    )
+
+gemini_client = genai.Client(api_key=api_key)
 
 
 from scripts.portfolio.metrics import GetMetrics
