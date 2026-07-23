@@ -17,8 +17,6 @@ UNIVERSE_PATH = BASE_DIR / "data" / "asx_companies.csv"
 POSITION_EPSILON = 1e-4  # 0.01% portfolio weight
 
 
-
-
 MODEL_FILE_KEYS = {
     "Decision Tree": "dt",
     "LightGBM": "lightgbm",
@@ -176,26 +174,11 @@ PORTFOLIO_CSS = """
         linear-gradient(135deg, #ECFDF5 0%, #F8FAFC 48%, #EFF6FF 100%);
     border: 1px solid #CFE8E0;
     border-radius: 22px;
-    padding: 1.75rem 1.9rem;
+    padding: 1.6rem 1.9rem;
     margin-bottom: 1.25rem;
     box-shadow: 0 12px 34px rgba(15, 118, 110, 0.08);
 }
 
-.portfolio-kicker {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    background: rgba(255,255,255,0.82);
-    border: 1px solid rgba(16,185,129,0.22);
-    border-radius: 999px;
-    padding: 0.38rem 0.72rem;
-    color: #047857;
-    font-size: 0.76rem;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    margin-bottom: 0.75rem;
-}
 
 .portfolio-title {
     margin: 0;
@@ -206,29 +189,14 @@ PORTFOLIO_CSS = """
 }
 
 .portfolio-description {
-    margin-top: 0.65rem;
+    margin-top: 0.55rem;
     max-width: 920px;
     color: #52647A;
     font-size: 0.96rem;
     line-height: 1.62;
 }
 
-.portfolio-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.95rem;
-}
 
-.portfolio-tag {
-    background: rgba(255,255,255,0.84);
-    border: 1px solid #D6E5E1;
-    border-radius: 999px;
-    padding: 0.4rem 0.72rem;
-    color: #334155;
-    font-size: 0.77rem;
-    font-weight: 750;
-}
 
 .latest-date {
     display: inline-flex;
@@ -684,21 +652,12 @@ def render_portfolio() -> None:
     st.html(
         """
         <div class="portfolio-hero">
-            <div class="portfolio-kicker">● Current portfolio allocation</div>
             <h1 class="portfolio-title">Portfolio</h1>
 
             <div class="portfolio-description">
                 Explore the latest long and short positions, portfolio weights,
                 sector composition and realised return contributions generated
                 by the systematic ASX equity strategy.
-            </div>
-
-            <div class="portfolio-tags">
-                <span class="portfolio-tag">Dollar Neutral</span>
-                <span class="portfolio-tag">Weekly Rebalancing</span>
-                <span class="portfolio-tag">Long / Short</span>
-                <span class="portfolio-tag">Prediction Ranked</span>
-                <span class="portfolio-tag">Sector Monitored</span>
             </div>
         </div>
         """
@@ -759,34 +718,15 @@ def render_portfolio() -> None:
         ],
     )
 
-    # Use only stock-level realised forward-return columns.
-    # Do not fall back to portfolio_return or a generic return column:
-    # those can represent the aggregate portfolio return or a one-day return.
     realised_return_col = find_column(
         latest_portfolio,
         [
-            "realised_return_5d",
             "future_return_5d",
             "realised_return",
+            "portfolio_return",
+            "return",
         ],
     )
-
-    realised_return_label = (
-        "Realised 5D Return"
-        if realised_return_col in {
-            "realised_return_5d",
-            "future_return_5d",
-        }
-        else "Realised Return"
-    )
-
-    if realised_return_col is None:
-        st.warning(
-            "No stock-level realised return column was found. Expected one "
-            "of: realised_return_5d, future_return_5d, or realised_return. "
-            "The dashboard will hide realised-return and contribution fields "
-            "rather than using an ambiguous portfolio_return or return column."
-        )
 
     if ticker_col is None:
         st.error(
@@ -1303,7 +1243,7 @@ def render_portfolio() -> None:
 
         column_config[realised_return_col] = (
             st.column_config.NumberColumn(
-                realised_return_label,
+                "Realised Return",
                 format="%.2f%%",
             )
         )
@@ -1395,7 +1335,7 @@ def render_portfolio() -> None:
         ),
         realised_return_col: (
             st.column_config.NumberColumn(
-                realised_return_label,
+                "Realised Return",
                 format="%.2f%%",
             )
         ),
