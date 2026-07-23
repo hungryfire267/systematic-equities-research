@@ -22,6 +22,12 @@ def render_methodology_lessons() -> None:
     - Future research directions
     - Cloud deployment
     """
+    
+    st.set_page_config(
+        page_title="ASX Alpha System - Methodology",
+        page_icon="✨",
+        layout="wide"
+    )
 
     render_html(
         """

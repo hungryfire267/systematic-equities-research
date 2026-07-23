@@ -1948,7 +1948,8 @@ def select_prediction_winner(results: dict) -> dict:
 
 def render_model_comparison():
     st.set_page_config(
-        page_title="Model Comparison",
+        page_title="ASX Alpha System - Model Comparison",
+        page_icon="⚖️",
         layout="wide"
     )
 

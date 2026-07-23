@@ -491,6 +491,13 @@ def render_overview(
             font-weight: 800;
         }
 
+        .strategy-overview-body {
+            margin: 0 0 1.45rem 0;
+            color: #475569;
+            font-size: 0.96rem;
+            line-height: 1.7;
+        }
+
         .section-header {
             display: flex;
             justify-content: space-between;
@@ -810,32 +817,16 @@ def render_overview(
             <div class="section-heading-main">
                 <div class="section-symbol">◎</div>
                 <div>
-                    <div class="section-title">Overview</div>
+                    <div class="section-title">Strategy Overview</div>
                     <div class="section-caption">
-                        A straightforward summary of the strategy and its purpose.
+                        A market-neutral equity strategy powered by machine learning.
                     </div>
                 </div>
             </div>
         </div>
-
-        <ul class="recruiter-overview-list">
-            <li>
-                <strong>What it does:</strong> The platform compares ASX stocks
-                and identifies those expected to perform relatively well or
-                poorly over the next five trading days.
-            </li>
-            <li>
-                <strong>Selected approach:</strong>
-                <b>{selected_model} + {selected_feature_set}</b> produced the
-                strongest balance of return and risk in the historical
-                evaluation.
-            </li>
-            <li>
-                <strong>How it is used:</strong> The portfolio is refreshed
-                weekly using the latest rankings. Results are shown before
-                transaction costs, which remain an important limitation.
-            </li>
-        </ul>
+        <div class="strategy-overview-body">
+            This project delivers a systematic, machine learning driven approach to equity investing across the ASX. Each week, {selected_model} + {selected_feature_set} forecasts relative performance across approximately 200 stocks, ranking the universe from strongest to weakest expected performer. The strategy takes long positions in the top 20 ranked stocks and short positions in the bottom 20, capturing the performance spread between them while limiting exposure to broad market direction. The result is a fully systematic process monitored in real time through an interactive dashboard.
+        </div>
         """,
         unsafe_allow_html=True,
     )

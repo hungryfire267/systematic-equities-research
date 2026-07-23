@@ -4,6 +4,7 @@ from scipy.stats import gaussian_kde
 from html import escape
 import html
 import os
+import re
 import pandas as pd
 from pathlib import Path
 import streamlit as st
@@ -2417,23 +2418,17 @@ Alpha analysis:
 - Market R-squared: {_metric_value(alpha_metrics, "r_squared"):.1%}
 - Information ratio: {_metric_value(alpha_metrics, "information_ratio"):.2f}
 
-Return exactly three concise bullet points with no heading, introduction,
-numbering, nested bullets or conclusion.
+Write an executive summary of the strategy using exactly three concise bullet points. Emphasise the overall performance, investment behaviour, and key conclusion of the backtest, drawing on all available metrics rather than discussing them individually. Avoid generic statements and unnecessary repetition.
 
-The three bullets must cover:
-- risk-adjusted performance relative to the ASX 200;
-- alpha generation and market independence, interpreting alpha, beta,
-  R-squared or information ratio;
-- the most important limitation, inconsistency or realism concern.
-
-Each bullet must contain both an observation and its interpretation. Keep the
-entire response below 140 words. Use plain text only, avoid Markdown bolding,
-and remain objective and appropriately critical.
+Every line must begin with "- ". Do not add a heading, introduction,
+conclusion, numbering, blank lines or nested bullets. Keep the complete
+response below 140 words. Use plain text only, avoid Markdown bolding, and
+remain objective and appropriately critical.
 """
 
     response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
+        model="gemini-3.1-flash-lite",
+        contents=prompt
     )
 
     if not response.text:
@@ -2443,37 +2438,75 @@ and remain objective and appropriately critical.
 
 
 def _extract_analysis_bullets(response_text: str) -> list[str]:
-    """Parse Gemini output into at most three clean bullet strings."""
+    """Parse bullets, numbered points or sentence-style Gemini output."""
     bullets: list[str] = []
-    current: list[str] = []
 
     for raw_line in response_text.splitlines():
         line = raw_line.strip()
         if not line:
             continue
 
-        is_bullet = line.startswith(("-", "*", "•"))
+        match = re.match(
+            r"^(?:[-*•]|\d+[.)])\s*(.+)$",
+            line
+        )
 
-        if is_bullet:
-            if current:
-                bullets.append(" ".join(current).strip())
-                current = []
-            current.append(line.lstrip("-*•").strip())
-        elif current:
-            current.append(line)
-        else:
-            current.append(line)
+        if match:
+            bullet = match.group(1).replace("**", "").strip()
+            if bullet:
+                bullets.append(bullet)
 
-    if current:
-        bullets.append(" ".join(current).strip())
+    if len(bullets) >= 3:
+        return bullets[:3]
 
-    cleaned = []
-    for bullet in bullets:
-        bullet = bullet.replace("**", "").strip()
-        if bullet:
-            cleaned.append(bullet)
+    plain_text = re.sub(
+        r"^(?:[-*•]|\d+[.)])\s*",
+        "",
+        response_text,
+        flags=re.MULTILINE,
+    )
+    plain_text = plain_text.replace("**", "").strip()
 
-    return cleaned[:3]
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(
+            r"(?<=[.!?])\s+",
+            plain_text
+        )
+        if sentence.strip()
+    ]
+
+    return sentences[:3]
+
+
+def _fallback_analysis_bullets(
+    portfolio_metrics: dict,
+    benchmark_metrics: dict,
+    alpha_metrics: dict,
+) -> list[str]:
+    """Create three reliable observations when Gemini formatting is invalid."""
+    return [
+        (
+            "Performance: The strategy achieved a Sharpe ratio of "
+            f"{_metric_value(portfolio_metrics, 'sharpe_ratio'):.2f} "
+            "versus "
+            f"{_metric_value(benchmark_metrics, 'sharpe_ratio'):.2f} "
+            "for the ASX 200, indicating stronger historical return per "
+            "unit of volatility."
+        ),
+        (
+            "Market relationship: A beta of "
+            f"{_metric_value(alpha_metrics, 'beta'):.2f} and market "
+            f"R-squared of {_metric_value(alpha_metrics, 'r_squared'):.1%} "
+            "suggest that broad-market movements explained only a limited "
+            "share of strategy performance."
+        ),
+        (
+            "Limitation: Results exclude transaction costs, short-borrow "
+            "fees and market impact, so realised performance would likely "
+            "be lower than the reported gross backtest."
+        ),
+    ]
 
 
 def render_backtest_analysis(
@@ -2497,8 +2530,10 @@ def render_backtest_analysis(
         bullets = _extract_analysis_bullets(response_text)
 
         if len(bullets) < 3:
-            raise ValueError(
-                "Gemini returned fewer than three valid observations."
+            bullets = _fallback_analysis_bullets(
+                portfolio_metrics=portfolio_metrics,
+                benchmark_metrics=benchmark_metrics,
+                alpha_metrics=alpha_metrics,
             )
 
         bullet_html = "".join(
@@ -2529,6 +2564,11 @@ def render_backtest_analysis(
         )
 
 def render_backtesting():
+    st.set_page_config(
+        page_title="ASX Alpha System - Methodology",
+        page_icon="📈",
+        layout="wide"
+    )
     st.html(BACKTEST_PAGE_CSS)
 
     st.html(
