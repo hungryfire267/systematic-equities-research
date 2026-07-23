@@ -2,88 +2,170 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.stats import gaussian_kde
 from html import escape
+import html
 import os
 import pandas as pd
 from pathlib import Path
 import streamlit as st
 import sys
+from dotenv import load_dotenv
+from google import genai
 
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(BASE_DIR))
 
+load_dotenv()
+gemini_client = genai.Client()
 
-from scripts.portfolio.metrics import GetMetrics, GetPredictionMetrics
-from scripts.portfolio.hypothesistest import ModelHypothesisTest
+
+from scripts.portfolio.metrics import GetMetrics
 from scripts.dashboard.get_asx_metrics import ASXMetrics
 from scripts.dashboard.alpha_metrics import AlphaMetrics
 
 
-BACKTEST_RESULTS_DT_DIR = (
-    BASE_DIR / "results" / "backtest" / "dt"
-)
-
-ASX_DIR = (
-    BASE_DIR / "data" / "raw" / "asx"
-)
-
-
-dt_market_paths = {
-    "final_portfolio_market": os.path.join(
-        BACKTEST_RESULTS_DT_DIR,
-        "final_portfolio_market.parquet"
-    ),
-    "test_preds_market": os.path.join(
-        BACKTEST_RESULTS_DT_DIR,
-        "test_preds_market.parquet"
-    ),
-    "test_preds_rank_market": os.path.join(
-        BACKTEST_RESULTS_DT_DIR,
-        "test_preds_rank_market.parquet"
-    )
+MODEL_DIRECTORIES = {
+    "dt": BASE_DIR / "results" / "backtest" / "dt",
+    "lightgbm": BASE_DIR / "results" / "backtest" / "lightgbm",
+    "xgboost": BASE_DIR / "results" / "backtest" / "xgboost",
 }
 
+MODEL_NAMES = {
+    "dt": "Decision Tree",
+    "lightgbm": "LightGBM",
+    "xgboost": "XGBoost",
+}
 
-# ---------------------------------------------------------
-# 1. Load the final strategy portfolio
-# ---------------------------------------------------------
+FEATURE_NAMES = {
+    "stock": "Stock Features",
+    "market": "Stock + Market",
+}
 
-final_portfolio_df = pd.read_parquet(
-    dt_market_paths["final_portfolio_market"]
-)
-
-
-# ---------------------------------------------------------
-# 2. Calculate strategy metrics and realised returns
-# ---------------------------------------------------------
-
-portfolio_metrics, portfolio_returns = (
-    GetMetrics(final_portfolio_df).run_data()
-)
+ASX_DIR = BASE_DIR / "data" / "raw" / "asx"
 
 
-# ---------------------------------------------------------
-# 3. Prepare the strategy return series
-# ---------------------------------------------------------
+def _load_selected_backtest() -> tuple[
+    dict,
+    pd.DataFrame,
+    pd.Series,
+    str,
+    str,
+]:
+    """
+    Load the portfolio selected on the Model Comparison page.
 
-portfolio_returns["Date"] = pd.to_datetime(
-    portfolio_returns["Date"]
-)
+    Falls back to LightGBM + Stock Features when session state has
+    not yet been populated.
+    """
+    selected_configuration = st.session_state.get(
+        "selected_configuration",
+        {}
+    )
 
-portfolio_returns = (
-    portfolio_returns
-    .dropna(subset=["Date", "portfolio_return"])
-    .drop_duplicates(subset="Date", keep="last")
-    .sort_values("Date")
-)
+    model_key = selected_configuration.get(
+        "model_key",
+        st.session_state.get(
+            "selected_model_key",
+            "lightgbm"
+        )
+    )
 
-strategy_returns = (
-    portfolio_returns
-    .set_index("Date")["portfolio_return"]
-)
+    feature_key = selected_configuration.get(
+        "feature_key",
+        st.session_state.get(
+            "selected_feature_key",
+            "stock"
+        )
+    )
 
-strategy_returns.name = "Decision Tree Strategy"
+    model_name = selected_configuration.get(
+        "model_name",
+        st.session_state.get(
+            "selected_model",
+            MODEL_NAMES.get(model_key, model_key)
+        )
+    )
+
+    feature_name = selected_configuration.get(
+        "feature_name",
+        st.session_state.get(
+            "selected_feature_set",
+            FEATURE_NAMES.get(feature_key, feature_key)
+        )
+    )
+
+    if model_key not in MODEL_DIRECTORIES:
+        raise KeyError(
+            f"Unknown model key: {model_key}. "
+            f"Expected one of {sorted(MODEL_DIRECTORIES)}."
+        )
+
+    portfolio_path = (
+        MODEL_DIRECTORIES[model_key]
+        / f"final_portfolio_{feature_key}.parquet"
+    )
+
+    if not portfolio_path.exists():
+        raise FileNotFoundError(
+            f"Selected portfolio file was not found: {portfolio_path}"
+        )
+
+    final_portfolio_df = pd.read_parquet(portfolio_path)
+
+    portfolio_metrics, portfolio_returns = (
+        GetMetrics(final_portfolio_df).run_data()
+    )
+
+    portfolio_returns["Date"] = pd.to_datetime(
+        portfolio_returns["Date"]
+    )
+
+    portfolio_returns = (
+        portfolio_returns
+        .dropna(subset=["Date", "portfolio_return"])
+        .drop_duplicates(subset="Date", keep="last")
+        .sort_values("Date")
+    )
+
+    strategy_returns = (
+        portfolio_returns
+        .set_index("Date")["portfolio_return"]
+    )
+
+    strategy_name = f"{model_name} + {feature_name}"
+    strategy_returns.name = strategy_name
+
+    resolved_configuration = {
+        **selected_configuration,
+        "model_key": model_key,
+        "model_name": model_name,
+        "feature_key": feature_key,
+        "feature_name": feature_name,
+    }
+
+    st.session_state["selected_configuration"] = resolved_configuration
+    st.session_state["selected_model"] = model_name
+    st.session_state["selected_feature_set"] = feature_name
+    st.session_state["selected_model_key"] = model_key
+    st.session_state["selected_feature_key"] = feature_key
+
+    return (
+        portfolio_metrics,
+        portfolio_returns,
+        strategy_returns,
+        strategy_name,
+        feature_name,
+    )
+
+
+(
+    portfolio_metrics,
+    portfolio_returns,
+    strategy_returns,
+    STRATEGY_NAME,
+    SELECTED_FEATURE_NAME,
+) = _load_selected_backtest()
 
 
 # ---------------------------------------------------------
@@ -120,7 +202,6 @@ asx_returns = (
 
 asx_metrics_full = asx_metrics.get_metrics()
 
-print(asx_metrics_full)
 
 
 BACKTEST_PAGE_CSS = """
@@ -145,22 +226,6 @@ BACKTEST_PAGE_CSS = """
     box-shadow: 0 12px 34px rgba(37,99,235,0.08);
 }
 
-.backtest-kicker {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    background: rgba(255,255,255,0.82);
-    border: 1px solid rgba(99,102,241,0.20);
-    border-radius: 999px;
-    padding: 0.38rem 0.72rem;
-    color: #4F46E5;
-    font-size: 0.76rem;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    margin-bottom: 0.75rem;
-}
-
 .backtest-title {
     margin: 0;
     color: #0F172A;
@@ -175,23 +240,6 @@ BACKTEST_PAGE_CSS = """
     color: #52647A;
     font-size: 0.96rem;
     line-height: 1.62;
-}
-
-.backtest-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.95rem;
-}
-
-.backtest-tag {
-    background: rgba(255,255,255,0.84);
-    border: 1px solid #D8E4F2;
-    border-radius: 999px;
-    padding: 0.4rem 0.72rem;
-    color: #334155;
-    font-size: 0.77rem;
-    font-weight: 750;
 }
 
 .section-header {
@@ -304,6 +352,62 @@ BACKTEST_PAGE_CSS = """
 
 div[data-testid="stPlotlyChart"] {
     border-radius: 16px;
+}
+
+.backtest-analysis-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.85rem;
+    align-items: flex-start;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 1rem;
+    margin-bottom: 1.25rem;
+    padding: 1rem 1.15rem;
+    border: 1px solid #BFDBFE;
+    border-left: 5px solid #6366F1;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #EFF6FF 0%, #F5F3FF 100%);
+}
+
+.backtest-analysis-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 999px;
+    background: #E0E7FF;
+    color: #4338CA;
+    font-size: 1.05rem;
+}
+
+.backtest-analysis-title {
+    color: #312E81;
+    font-size: 0.88rem;
+    font-weight: 850;
+    margin-bottom: 0.3rem;
+}
+
+.backtest-analysis-list {
+    margin: 0;
+    padding-left: 1.15rem;
+    color: #334155;
+    font-size: 0.82rem;
+    line-height: 1.55;
+}
+
+.backtest-analysis-list li {
+    margin-bottom: 0.42rem;
+    padding-left: 0.08rem;
+}
+
+.backtest-analysis-list li:last-child {
+    margin-bottom: 0;
+}
+
+.backtest-analysis-list li::marker {
+    color: #6366F1;
 }
 
 @media (max-width: 900px) {
@@ -544,6 +648,41 @@ def render_backtest_metric_cards(
                 gap: 12px;
             }}
 
+            .headline-section-header {{
+                display: flex;
+                align-items: flex-start;
+                gap: 0.7rem;
+                margin-bottom: 0.9rem;
+            }}
+
+            .headline-section-icon {{
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 2.15rem;
+                height: 2.15rem;
+                flex: 0 0 2.15rem;
+                border-radius: 12px;
+                background: #EFF6FF;
+                color: #2563EB;
+                font-size: 1rem;
+                font-weight: 800;
+            }}
+
+            .headline-section-title {{
+                color: #0F172A;
+                font-size: 1.25rem;
+                font-weight: 850;
+                line-height: 1.2;
+            }}
+
+            .headline-section-caption {{
+                margin-top: 0.22rem;
+                color: #64748B;
+                font-size: 0.83rem;
+                line-height: 1.45;
+            }}
+
             .headline-metric-card {{
                 min-width: 0;
                 padding: 16px;
@@ -680,14 +819,14 @@ def render_backtest_metric_cards(
         </style>
 
         <div class="headline-metrics-section">
-            <div class="headline-metrics-header">
-                <div class="headline-metrics-title">
-                    Performance Highlights
-                </div>
-
-                <div class="headline-metrics-caption">
-                    Headline {escape(strategy_name)} results compared with
-                    the {escape(benchmark_name)}.
+            <div class="headline-section-header">
+                <div class="headline-section-icon">✦</div>
+                <div>
+                    <div class="headline-section-title">Performance Highlights</div>
+                    <div class="headline-section-caption">
+                        Headline {escape(strategy_name)} results compared with
+                        the {escape(benchmark_name)}.
+                    </div>
                 </div>
             </div>
 
@@ -699,9 +838,9 @@ def render_backtest_metric_cards(
     )
 
 PERFORMANCE_COLOURS = {
-    "strategy": "#2563EB",
-    "benchmark": "#F97316",
-    "cash": "#64748B"
+    "strategy": "#10B981",
+    "benchmark": "#334155",
+    "cash": "#94A3B8"
 }
 
 
@@ -931,25 +1070,6 @@ def _create_cumulative_return_figure(
             )
         )
 
-    _add_final_value_annotation(
-        figure=figure,
-        series=cumulative_returns["Strategy"],
-        colour=PERFORMANCE_COLOURS["strategy"]
-    )
-
-    _add_final_value_annotation(
-        figure=figure,
-        series=cumulative_returns["Benchmark"],
-        colour=PERFORMANCE_COLOURS["benchmark"]
-    )
-
-    if "Cash" in cumulative_returns.columns:
-        _add_final_value_annotation(
-            figure=figure,
-            series=cumulative_returns["Cash"],
-            colour=PERFORMANCE_COLOURS["cash"]
-        )
-
     all_values = cumulative_returns.to_numpy().flatten()
     all_values = all_values[np.isfinite(all_values)]
 
@@ -966,7 +1086,7 @@ def _create_cumulative_return_figure(
     )
 
     figure.update_layout(
-        height=390,
+        height=TOP_PLOT_HEIGHT,
         margin=dict(
             l=15,
             r=78,
@@ -1046,18 +1166,7 @@ def render_cumulative_returns(
         cash_name=cash_name
     )
 
-    st.markdown(
-        """
-        <style>
-            div[data-testid="stPlotlyChart"] {
-                margin-top: -0.45rem;
-            }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    with st.container(border=True):
+    with st.container(border=True, height=TOP_CHART_CARD_HEIGHT):
         st.markdown(
             """
             <div style="
@@ -1094,9 +1203,13 @@ def render_cumulative_returns(
         )
 
 DRAWDOWN_COLOURS = {
-    "strategy": "#EF4444",
-    "benchmark": "#F97316"
+    "strategy": "#10B981",
+    "benchmark": "#334155"
 }
+
+TOP_CHART_CARD_HEIGHT = 455
+TOP_PLOT_HEIGHT = 350
+BOTTOM_CARD_HEIGHT = 610
 
 
 def _extract_return_series_drawdown(
@@ -1274,7 +1387,7 @@ def _create_drawdown_figure(
                 width=2.2
             ),
             fill="tozeroy",
-            fillcolor="rgba(239, 68, 68, 0.12)",
+            fillcolor="rgba(16, 185, 129, 0.12)",
             hovertemplate=(
                 "%{x|%d %b %Y}"
                 "<br>Drawdown: %{y:.1%}"
@@ -1301,18 +1414,6 @@ def _create_drawdown_figure(
         )
     )
 
-    _add_final_drawdown_annotation(
-        figure=figure,
-        series=drawdowns["Strategy"],
-        colour=DRAWDOWN_COLOURS["strategy"]
-    )
-
-    _add_final_drawdown_annotation(
-        figure=figure,
-        series=drawdowns["Benchmark"],
-        colour=DRAWDOWN_COLOURS["benchmark"]
-    )
-
     minimum_drawdown = float(
         drawdowns.min().min()
     )
@@ -1329,7 +1430,7 @@ def _create_drawdown_figure(
     )
 
     figure.update_layout(
-        height=390,
+        height=TOP_PLOT_HEIGHT,
         margin=dict(
             l=15,
             r=78,
@@ -1403,7 +1504,7 @@ def render_drawdown(
         benchmark_name=benchmark_name
     )
 
-    with st.container(border=True):
+    with st.container(border=True, height=TOP_CHART_CARD_HEIGHT):
         st.markdown(
             """
             <div style="
@@ -1439,13 +1540,13 @@ def render_drawdown(
             key="portfolio_drawdown"
         )
 
-MODEL_COLOURS = {
+RETURN_SERIES_COLOURS = {
     "strategy": "#10B981",
-    "benchmark": "#2563EB"
+    "benchmark": "#334155"
 }
 
 # Use this same height for the summary-table container.
-BACKTEST_CARD_HEIGHT = 520
+BACKTEST_CARD_HEIGHT = BOTTOM_CARD_HEIGHT
 
 
 def _extract_return_series_distribution(
@@ -1679,9 +1780,9 @@ def _create_histogram(
             histnorm="probability density",
             opacity=0.48,
             marker=dict(
-                color=MODEL_COLOURS["strategy"],
+                color=RETURN_SERIES_COLOURS["strategy"],
                 line=dict(
-                    color=MODEL_COLOURS["strategy"],
+                    color=RETURN_SERIES_COLOURS["strategy"],
                     width=0.5
                 )
             ),
@@ -1700,9 +1801,9 @@ def _create_histogram(
             histnorm="probability density",
             opacity=0.48,
             marker=dict(
-                color=MODEL_COLOURS["benchmark"],
+                color=RETURN_SERIES_COLOURS["benchmark"],
                 line=dict(
-                    color=MODEL_COLOURS["benchmark"],
+                    color=RETURN_SERIES_COLOURS["benchmark"],
                     width=0.5
                 )
             ),
@@ -1718,7 +1819,7 @@ def _create_histogram(
         figure=figure,
         returns=returns_df["Strategy"],
         name=strategy_name,
-        colour=MODEL_COLOURS["strategy"],
+        colour=RETURN_SERIES_COLOURS["strategy"],
         x_min=x_min,
         x_max=x_max
     )
@@ -1727,7 +1828,7 @@ def _create_histogram(
         figure=figure,
         returns=returns_df["Benchmark"],
         name=benchmark_name,
-        colour=MODEL_COLOURS["benchmark"],
+        colour=RETURN_SERIES_COLOURS["benchmark"],
         x_min=x_min,
         x_max=x_max
     )
@@ -1741,7 +1842,7 @@ def _create_histogram(
     figure.update_layout(
         barmode="overlay",
         bargap=0.03,
-        height=245,
+        height=285,
         margin=dict(
             l=12,
             r=12,
@@ -1803,11 +1904,11 @@ def _create_boxplot(
             boxpoints="outliers",
             fillcolor="rgba(16, 185, 129, 0.45)",
             marker=dict(
-                color=MODEL_COLOURS["strategy"],
+                color=RETURN_SERIES_COLOURS["strategy"],
                 size=5
             ),
             line=dict(
-                color=MODEL_COLOURS["strategy"],
+                color=RETURN_SERIES_COLOURS["strategy"],
                 width=1.5
             ),
             hovertemplate=(
@@ -1824,13 +1925,13 @@ def _create_boxplot(
             orientation="h",
             boxmean=True,
             boxpoints="outliers",
-            fillcolor="rgba(37, 99, 235, 0.40)",
+            fillcolor="rgba(51, 65, 85, 0.28)",
             marker=dict(
-                color=MODEL_COLOURS["benchmark"],
+                color=RETURN_SERIES_COLOURS["benchmark"],
                 size=5
             ),
             line=dict(
-                color=MODEL_COLOURS["benchmark"],
+                color=RETURN_SERIES_COLOURS["benchmark"],
                 width=1.5
             ),
             hovertemplate=(
@@ -1847,7 +1948,7 @@ def _create_boxplot(
     )
 
     figure.update_layout(
-        height=175,
+        height=205,
         margin=dict(
             l=10,
             r=12,
@@ -1989,27 +2090,28 @@ def render_return_summary(
     strategy_metrics: dict,
     benchmark_metrics: dict,
     strategy_name: str,
-    benchmark_name: str = "ASX 200"
+    benchmark_name: str = "ASX 200",
+    container_height: int = BACKTEST_CARD_HEIGHT,
 ) -> None:
     """
     Render a risk and return comparison table.
     """
 
     metrics = [
-        ("Annual Return", "annual_return", True),
-        ("Total Return", "total_return", True),
-        ("Annual Volatility", "annual_volatility", True),
-        ("Sharpe Ratio", "sharpe_ratio", False),
-        ("Sortino Ratio", "sortino_ratio", False),
-        ("Maximum Drawdown", "max_drawdown", True),
-        ("Calmar Ratio", "calmar_ratio", False),
-        ("Weekly Win Rate", "win_rate", True),
-        ("Worst Week", "worst_week", True)
+        ("Annual Return", "annual_return", True, True),
+        ("Total Return", "total_return", True, True),
+        ("Annual Volatility", "annual_volatility", True, False),
+        ("Sharpe Ratio", "sharpe_ratio", False, True),
+        ("Sortino Ratio", "sortino_ratio", False, True),
+        ("Maximum Drawdown", "max_drawdown", True, True),
+        ("Calmar Ratio", "calmar_ratio", False, True),
+        ("Weekly Win Rate", "win_rate", True, True),
+        ("Worst Week", "worst_week", True, True)
     ]
 
     rows = []
 
-    for label, key, as_percentage in metrics:
+    for label, key, as_percentage, higher_is_better in metrics:
         strategy_value = strategy_metrics.get(key)
         benchmark_value = benchmark_metrics.get(key)
 
@@ -2023,12 +2125,36 @@ def render_return_summary(
             as_percentage
         )
 
+        if (
+            strategy_value is None
+            or benchmark_value is None
+            or pd.isna(strategy_value)
+            or pd.isna(benchmark_value)
+        ):
+            winner = "—"
+            winner_class = "winner-neutral"
+        elif strategy_value == benchmark_value:
+            winner = "Tie"
+            winner_class = "winner-neutral"
+        else:
+            strategy_wins = (
+                strategy_value > benchmark_value
+                if higher_is_better
+                else strategy_value < benchmark_value
+            )
+            strategy_winner_label = strategy_name.replace(" Features", "")
+            winner = strategy_winner_label if strategy_wins else benchmark_name
+            winner_class = (
+                "winner-strategy" if strategy_wins else "winner-benchmark"
+            )
+
         rows.append(
             f"""
             <tr>
                 <td class="metric-name">{escape(label)}</td>
                 <td class="metric-value">{strategy_display}</td>
                 <td class="metric-value">{benchmark_display}</td>
+                <td class="winner-cell"><span class="winner-pill {winner_class}">{escape(winner)}</span></td>
             </tr>
             """
         )
@@ -2039,7 +2165,7 @@ def render_return_summary(
         <style>
             .return-summary-card {{
                 width: 100%;
-                height: 520px;                 /* <-- Added */
+                height: {container_height}px;
                 padding: 20px;
                 border: 1px solid #DCE3EC;
                 border-radius: 14px;
@@ -2068,9 +2194,11 @@ def render_return_summary(
 
             .return-summary-table-wrapper {{
                 width: 100%;
-                flex: 1;                       /* <-- Added */
-                display: flex;                 /* <-- Added */
-                flex-direction: column;        /* <-- Added */
+                flex: 1;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
             }}
 
             .return-summary-table {{
@@ -2090,7 +2218,7 @@ def render_return_summary(
             }}
 
             .return-summary-table th:first-child {{
-                width: 40%;
+                width: 27%;
                 text-align: left;
                 border-top-left-radius: 8px;
             }}
@@ -2100,7 +2228,7 @@ def render_return_summary(
             }}
 
             .return-summary-table td {{
-                padding: 11px 10px;
+                padding: 10px 10px;
                 border-bottom: 1px solid #E2E8F0;
                 color: #0F172A;
                 font-size: 13px;
@@ -2118,6 +2246,41 @@ def render_return_summary(
             .metric-value {{
                 font-variant-numeric: tabular-nums;
                 text-align: right;
+            }}
+
+            .winner-cell {{
+                text-align: center;
+                font-size: 11px;
+                font-weight: 750;
+                line-height: 1.25;
+            }}
+
+            .winner-pill {{
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                max-width: 100%;
+                padding: 4px 8px;
+                border-radius: 999px;
+                white-space: normal;
+            }}
+
+            .winner-strategy {{
+                color: #047857;
+                background: #ECFDF5;
+                border: 1px solid #A7F3D0;
+            }}
+
+            .winner-benchmark {{
+                color: #334155;
+                background: #F1F5F9;
+                border: 1px solid #CBD5E1;
+            }}
+
+            .winner-neutral {{
+                color: #64748B;
+                background: #F8FAFC;
+                border: 1px solid #E2E8F0;
             }}
         </style>
 
@@ -2140,6 +2303,7 @@ def render_return_summary(
                             <th>Metric</th>
                             <th>{escape(strategy_name)}</th>
                             <th>{escape(benchmark_name)}</th>
+                            <th>Winner</th>
                         </tr>
                     </thead>
 
@@ -2157,39 +2321,190 @@ def render_return_summary(
     st.html(html)
 
 
+
+def _metric_value(metrics: dict, key: str) -> float:
+    """Return a metric as a float, falling back to NaN when unavailable."""
+    value = metrics.get(key, np.nan)
+    return float(value) if value is not None else float("nan")
+
+
+@st.cache_data(show_spinner=False)
+def generate_backtest_analysis(
+    strategy_name: str,
+    feature_set: str,
+    portfolio_metrics: dict,
+    benchmark_metrics: dict,
+    alpha_metrics: dict,
+) -> str:
+    """Generate three concise observations about the backtest using Gemini."""
+
+    prompt = f"""
+You are a systematic equities analyst reviewing a quantitative long-short
+ASX equity strategy backtest.
+
+Strategy configuration:
+- Model: {strategy_name}
+- Feature set: {feature_set}
+- Forecast horizon: 5 trading days
+- Rebalancing frequency: weekly
+- Portfolio construction: long-short and dollar-neutral
+- Validation: expanding-window walk-forward validation
+- Return frequency: weekly
+- Annualisation factor: 52
+- Risk-free rate: 0.0
+- Benchmark: ASX 200
+- Transaction costs: excluded; all results are gross and pre-cost
+
+Strategy performance:
+- Annual return: {_metric_value(portfolio_metrics, "annual_return"):.1%}
+- Total return: {_metric_value(portfolio_metrics, "total_return"):.1%}
+- Annual volatility: {_metric_value(portfolio_metrics, "annual_volatility"):.1%}
+- Sharpe ratio: {_metric_value(portfolio_metrics, "sharpe_ratio"):.2f}
+- Sortino ratio: {_metric_value(portfolio_metrics, "sortino_ratio"):.2f}
+- Maximum drawdown: {_metric_value(portfolio_metrics, "max_drawdown"):.1%}
+- Calmar ratio: {_metric_value(portfolio_metrics, "calmar_ratio"):.2f}
+- Weekly win rate: {_metric_value(portfolio_metrics, "win_rate"):.1%}
+- Worst week: {_metric_value(portfolio_metrics, "worst_week"):.1%}
+
+ASX 200 benchmark performance:
+- Annual return: {_metric_value(benchmark_metrics, "annual_return"):.1%}
+- Total return: {_metric_value(benchmark_metrics, "total_return"):.1%}
+- Annual volatility: {_metric_value(benchmark_metrics, "annual_volatility"):.1%}
+- Sharpe ratio: {_metric_value(benchmark_metrics, "sharpe_ratio"):.2f}
+- Sortino ratio: {_metric_value(benchmark_metrics, "sortino_ratio"):.2f}
+- Maximum drawdown: {_metric_value(benchmark_metrics, "max_drawdown"):.1%}
+- Calmar ratio: {_metric_value(benchmark_metrics, "calmar_ratio"):.2f}
+- Weekly win rate: {_metric_value(benchmark_metrics, "win_rate"):.1%}
+- Worst week: {_metric_value(benchmark_metrics, "worst_week"):.1%}
+
+Alpha analysis:
+- Annualised alpha: {_metric_value(alpha_metrics, "annualised_alpha"):.1%}
+- Market beta: {_metric_value(alpha_metrics, "beta"):.2f}
+- Market R-squared: {_metric_value(alpha_metrics, "r_squared"):.1%}
+- Information ratio: {_metric_value(alpha_metrics, "information_ratio"):.2f}
+
+Return exactly three concise bullet points with no heading, introduction,
+numbering, nested bullets or conclusion.
+
+The three bullets must cover:
+- risk-adjusted performance relative to the ASX 200;
+- alpha generation and market independence, interpreting alpha, beta,
+  R-squared or information ratio;
+- the most important limitation, inconsistency or realism concern.
+
+Each bullet must contain both an observation and its interpretation. Keep the
+entire response below 140 words. Use plain text only, avoid Markdown bolding,
+and remain objective and appropriately critical.
+"""
+
+    response = gemini_client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+    )
+
+    if not response.text:
+        raise ValueError("Gemini returned an empty response.")
+
+    return response.text.strip()
+
+
+def _extract_analysis_bullets(response_text: str) -> list[str]:
+    """Parse Gemini output into at most three clean bullet strings."""
+    bullets: list[str] = []
+    current: list[str] = []
+
+    for raw_line in response_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        is_bullet = line.startswith(("-", "*", "•"))
+
+        if is_bullet:
+            if current:
+                bullets.append(" ".join(current).strip())
+                current = []
+            current.append(line.lstrip("-*•").strip())
+        elif current:
+            current.append(line)
+        else:
+            current.append(line)
+
+    if current:
+        bullets.append(" ".join(current).strip())
+
+    cleaned = []
+    for bullet in bullets:
+        bullet = bullet.replace("**", "").strip()
+        if bullet:
+            cleaned.append(bullet)
+
+    return cleaned[:3]
+
+
+def render_backtest_analysis(
+    strategy_name: str,
+    feature_set: str,
+    portfolio_metrics: dict,
+    benchmark_metrics: dict,
+    alpha_metrics: dict,
+) -> None:
+    """Render Gemini's three-point interpretation in one analysis box."""
+    try:
+        with st.spinner("Generating backtest analysis..."):
+            response_text = generate_backtest_analysis(
+                strategy_name=strategy_name,
+                feature_set=feature_set,
+                portfolio_metrics=portfolio_metrics,
+                benchmark_metrics=benchmark_metrics,
+                alpha_metrics=alpha_metrics,
+            )
+
+        bullets = _extract_analysis_bullets(response_text)
+
+        if len(bullets) < 3:
+            raise ValueError(
+                "Gemini returned fewer than three valid observations."
+            )
+
+        bullet_html = "".join(
+            f"<li>{html.escape(bullet)}</li>"
+            for bullet in bullets
+        )
+
+        st.html(
+            f"""
+            <div class="backtest-analysis-card">
+                <div class="backtest-analysis-icon">★</div>
+                <div>
+                    <div class="backtest-analysis-title">
+                        Analysis of Backtest Performance
+                    </div>
+                    <ul class="backtest-analysis-list">
+                        {bullet_html}
+                    </ul>
+                </div>
+            </div>
+            """
+        )
+
+    except Exception as exc:
+        st.warning(
+            "The AI backtest analysis could not be generated. "
+            f"Details: {exc}"
+        )
+
 def render_backtesting():
     st.html(BACKTEST_PAGE_CSS)
 
     st.html(
-        """
+        f"""
         <div class="backtest-hero">
-            <div class="backtest-kicker">● Strategy evaluation</div>
             <h1 class="backtest-title">Backtest Performance</h1>
             <div class="backtest-description">
-                Compare the Decision Tree strategy with the ASX 200 benchmark
-                across return, downside risk, consistency and alpha-generation
-                measures using aligned weekly observations.
-            </div>
-            <div class="backtest-tags">
-                <span class="backtest-tag">Decision Tree Strategy</span>
-                <span class="backtest-tag">ASX 200 Benchmark</span>
-                <span class="backtest-tag">Weekly Returns</span>
-                <span class="backtest-tag">Walk-Forward Tested</span>
-                <span class="backtest-tag">Risk &amp; Alpha Analysis</span>
-            </div>
-        </div>
-        """
-    )
-
-    st.html(
-        """
-        <div class="section-header">
-            <div class="section-icon">◆</div>
-            <div>
-                <div class="section-title">Performance Highlights</div>
-                <div class="section-caption">
-                    Headline Decision Tree results compared with the ASX 200.
-                </div>
+                Compare the selected <b>{STRATEGY_NAME}</b> strategy with the
+                ASX 200 benchmark across return, downside risk, consistency
+                and alpha-generation measures using aligned weekly observations.
             </div>
         </div>
         """
@@ -2198,7 +2513,7 @@ def render_backtesting():
     render_backtest_metric_cards(
         strategy_metrics=portfolio_metrics,
         benchmark_metrics=asx_metrics_full,
-        strategy_name="Decision Tree",
+        strategy_name=STRATEGY_NAME,
         benchmark_name="ASX 200"
     )
 
@@ -2214,12 +2529,14 @@ def render_backtesting():
             <div>
                 <div class="takeaway-title">Backtest Takeaway</div>
                 <div class="takeaway-text">
-                    The Decision Tree strategy generated an annualised return of
-                    <b>{annual_return:.1%}</b> versus <b>{benchmark_return:.1%}</b>
-                    for the ASX 200, with a Sharpe ratio of <b>{sharpe:.2f}</b>.
-                    Maximum drawdown was <b>{max_drawdown:.1%}</b>, indicating
-                    stronger return generation alongside meaningful but
-                    controlled downside variation.
+                    The <b>{STRATEGY_NAME}</b> strategy generated an annualised
+                    return of <b>{annual_return:.1%}</b> versus
+                    <b>{benchmark_return:.1%}</b> for the ASX 200, with a
+                    Sharpe ratio of <b>{sharpe:.2f}</b>. Maximum drawdown was
+                    <b>{max_drawdown:.1%}</b>, indicating stronger return
+                    generation alongside meaningful but controlled downside
+                    variation. Results are pre-cost and exclude transaction
+                    costs.
                 </div>
             </div>
         </div>
@@ -2246,7 +2563,7 @@ def render_backtesting():
         render_cumulative_returns(
             strategy_returns=strategy_returns,
             benchmark_returns=asx_returns,
-            strategy_name="Decision Tree",
+            strategy_name=STRATEGY_NAME,
             benchmark_name="ASX 200"
         )
 
@@ -2254,7 +2571,7 @@ def render_backtesting():
         render_drawdown(
             strategy_returns=strategy_returns,
             benchmark_returns=asx_returns,
-            strategy_name="Decision Tree",
+            strategy_name=STRATEGY_NAME,
             benchmark_name="ASX 200"
         )
 
@@ -2264,7 +2581,7 @@ def render_backtesting():
         render_return_summary(
             strategy_metrics=portfolio_metrics,
             benchmark_metrics=asx_metrics_full,
-            strategy_name="Decision Tree",
+            strategy_name=STRATEGY_NAME,
             benchmark_name="ASX 200"
         )
 
@@ -2272,7 +2589,7 @@ def render_backtesting():
         render_return_distribution(
             strategy_returns=strategy_returns,
             benchmark_returns=asx_returns,
-            strategy_name="Decision Tree",
+            strategy_name=STRATEGY_NAME,
             benchmark_name="ASX 200"
         )
 
@@ -2300,3 +2617,12 @@ def render_backtesting():
     )
 
     render_alpha_metric_cards(alpha_metrics)
+
+    render_backtest_analysis(
+        strategy_name=st.session_state.get("selected_model", STRATEGY_NAME),
+        feature_set=SELECTED_FEATURE_NAME,
+        portfolio_metrics=portfolio_metrics,
+        benchmark_metrics=asx_metrics_full,
+        alpha_metrics=alpha_metrics,
+    )
+

@@ -10,8 +10,150 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(BASE_DIR))
 
 BACKTEST_RESULTS_DIR = BASE_DIR / "results" / "backtest"
-PORTFOLIO_PATH = BACKTEST_RESULTS_DIR / "final_portfolio.parquet"
+DEFAULT_PORTFOLIO_PATH = BACKTEST_RESULTS_DIR / "final_portfolio.parquet"
 UNIVERSE_PATH = BASE_DIR / "data" / "asx_companies.csv"
+
+# Ignore economically negligible floating-point weights.
+POSITION_EPSILON = 1e-4  # 0.01% portfolio weight
+
+
+
+
+MODEL_FILE_KEYS = {
+    "Decision Tree": "dt",
+    "LightGBM": "lightgbm",
+    "XGBoost": "xgboost",
+}
+
+FEATURE_FILE_KEYS = {
+    "Stock Features": "stock",
+    "Stock + Market": "market",
+}
+
+
+def _normalise_selected_configuration() -> tuple[str, str]:
+    """Return the selected model and feature labels from session state."""
+    configuration = st.session_state.get("selected_configuration", {})
+
+    selected_model = (
+        configuration.get("model")
+        or st.session_state.get("selected_model")
+        or "LightGBM"
+    )
+
+    selected_feature_set = (
+        configuration.get("feature_set")
+        or st.session_state.get("selected_feature_set")
+        or "Stock Features"
+    )
+
+    return str(selected_model), str(selected_feature_set)
+
+
+def _candidate_portfolio_paths(
+    selected_model: str,
+    selected_feature_set: str,
+) -> list[Path]:
+    """
+    Build a broad list of possible portfolio files.
+
+    The selected configuration is prioritised, but every matching backtest
+    output is also inspected so the dashboard can pick the file containing
+    the most recent rebalance date.
+    """
+    model_key = MODEL_FILE_KEYS.get(selected_model, selected_model.lower())
+    feature_key = FEATURE_FILE_KEYS.get(
+        selected_feature_set,
+        selected_feature_set.lower().replace(" + ", "_").replace(" ", "_"),
+    )
+
+    preferred_paths = [
+        BACKTEST_RESULTS_DIR
+        / model_key
+        / f"final_portfolio_{feature_key}.parquet",
+        BACKTEST_RESULTS_DIR
+        / model_key
+        / "final_portfolio.parquet",
+        BACKTEST_RESULTS_DIR
+        / f"final_portfolio_{feature_key}.parquet",
+        DEFAULT_PORTFOLIO_PATH,
+    ]
+
+    discovered_paths = sorted(
+        BACKTEST_RESULTS_DIR.rglob("final_portfolio*.parquet")
+    )
+
+    candidates: list[Path] = []
+    for path in [*preferred_paths, *discovered_paths]:
+        if path.exists() and path not in candidates:
+            candidates.append(path)
+
+    return candidates
+
+
+def _latest_date_in_file(path: Path) -> pd.Timestamp | None:
+    """Read only enough data to determine the latest rebalance date."""
+    try:
+        dataframe = pd.read_parquet(path)
+
+        if "Date" not in dataframe.columns:
+            dataframe = dataframe.reset_index()
+
+        if "Date" not in dataframe.columns:
+            return None
+
+        dates = pd.to_datetime(dataframe["Date"], errors="coerce")
+        latest_date = dates.max()
+
+        if pd.isna(latest_date):
+            return None
+
+        return pd.Timestamp(latest_date)
+
+    except Exception:
+        return None
+
+
+def resolve_latest_portfolio_path() -> tuple[Path | None, str, str]:
+    """
+    Load the portfolio belonging to the selected model and feature set.
+
+    The newest rebalance is then selected from inside that file. We do not
+    compare dates across different strategy files because that can cause the
+    displayed holdings to switch between model configurations on reruns.
+    """
+    selected_model, selected_feature_set = (
+        _normalise_selected_configuration()
+    )
+
+    model_key = MODEL_FILE_KEYS.get(
+        selected_model,
+        selected_model.lower(),
+    )
+    feature_key = FEATURE_FILE_KEYS.get(
+        selected_feature_set,
+        selected_feature_set.lower()
+        .replace(" + ", "_")
+        .replace(" ", "_"),
+    )
+
+    preferred_paths = [
+        BACKTEST_RESULTS_DIR
+        / model_key
+        / f"final_portfolio_{feature_key}.parquet",
+        BACKTEST_RESULTS_DIR
+        / model_key
+        / "final_portfolio.parquet",
+        BACKTEST_RESULTS_DIR
+        / f"final_portfolio_{feature_key}.parquet",
+        DEFAULT_PORTFOLIO_PATH,
+    ]
+
+    for path in preferred_paths:
+        if path.exists() and _latest_date_in_file(path) is not None:
+            return path, selected_model, selected_feature_set
+
+    return None, selected_model, selected_feature_set
 
 
 PORTFOLIO_CSS = """
@@ -288,8 +430,22 @@ div[data-testid="stDataFrame"] {
     box-shadow: 0 5px 18px rgba(15, 23, 42, 0.04);
 }
 
-div[data-testid="stSegmentedControl"] {
-    margin-bottom: 0.55rem;
+div[data-testid="stSelectbox"] {
+    margin-top: 0.15rem;
+    margin-bottom: 0.75rem;
+}
+
+div[data-testid="stSelectbox"] > div > div {
+    min-height: 2.35rem;
+    border: 1px solid #D7DEE8;
+    border-radius: 10px;
+    background: #FFFFFF;
+    color: #334155;
+    font-size: 0.82rem;
+}
+
+div[data-testid="stSelectbox"] > div > div:hover {
+    border-color: #94A3B8;
 }
 
 .long-heading,
@@ -548,22 +704,28 @@ def render_portfolio() -> None:
         """
     )
 
-    if not PORTFOLIO_PATH.exists():
+    (
+        portfolio_path,
+        selected_model,
+        selected_feature_set,
+    ) = resolve_latest_portfolio_path()
+
+    if portfolio_path is None:
         st.error(
-            f"Portfolio results could not be found at: "
-            f"{PORTFOLIO_PATH}"
+            "No valid final_portfolio parquet file with a Date column "
+            f"was found under: {BACKTEST_RESULTS_DIR}"
         )
         return
 
     try:
-        portfolio_df = pd.read_parquet(PORTFOLIO_PATH)
+        portfolio_df = pd.read_parquet(portfolio_path)
         latest_portfolio = get_latest_portfolio(
             portfolio_df
         )
 
     except Exception as error:
         st.error(
-            f"Unable to load portfolio data: {error}"
+            f"Unable to load portfolio data from {portfolio_path}: {error}"
         )
         return
 
@@ -597,15 +759,34 @@ def render_portfolio() -> None:
         ],
     )
 
+    # Use only stock-level realised forward-return columns.
+    # Do not fall back to portfolio_return or a generic return column:
+    # those can represent the aggregate portfolio return or a one-day return.
     realised_return_col = find_column(
         latest_portfolio,
         [
+            "realised_return_5d",
             "future_return_5d",
             "realised_return",
-            "portfolio_return",
-            "return",
         ],
     )
+
+    realised_return_label = (
+        "Realised 5D Return"
+        if realised_return_col in {
+            "realised_return_5d",
+            "future_return_5d",
+        }
+        else "Realised Return"
+    )
+
+    if realised_return_col is None:
+        st.warning(
+            "No stock-level realised return column was found. Expected one "
+            "of: realised_return_5d, future_return_5d, or realised_return. "
+            "The dashboard will hide realised-return and contribution fields "
+            "rather than using an ambiguous portfolio_return or return column."
+        )
 
     if ticker_col is None:
         st.error(
@@ -653,16 +834,19 @@ def render_portfolio() -> None:
 
     latest_date = latest_portfolio["Date"].max()
 
+    # Use a tolerance rather than exact zero comparisons. Optimisation
+    # output can contain tiny residual weights such as 1e-12, which display
+    # as 0.00% but would otherwise be incorrectly classified as positions.
     active_positions = latest_portfolio.loc[
-        latest_portfolio[weight_col] != 0
+        latest_portfolio[weight_col].abs() >= POSITION_EPSILON
     ].copy()
 
     long_positions = active_positions.loc[
-        active_positions[weight_col] > 0
+        active_positions[weight_col] >= POSITION_EPSILON
     ].copy()
 
     short_positions = active_positions.loc[
-        active_positions[weight_col] < 0
+        active_positions[weight_col] <= -POSITION_EPSILON
     ].copy()
 
     gross_exposure = (
@@ -692,6 +876,7 @@ def render_portfolio() -> None:
         f"""
         <div class="latest-date">
             🗓 Latest rebalance: {latest_date:%d %B %Y}
+            &nbsp;·&nbsp; {selected_model} + {selected_feature_set}
         </div>
         """
     )
@@ -1031,16 +1216,20 @@ def render_portfolio() -> None:
         """
     )
 
-    portfolio_side = st.segmented_control(
-        "Portfolio Side",
-        options=[
-            "All Positions",
-            "Long Positions",
-            "Short Positions",
-        ],
-        default="All Positions",
-        label_visibility="collapsed",
-    )
+    filter_col, _ = st.columns([0.22, 0.78])
+
+    with filter_col:
+        portfolio_side = st.selectbox(
+            "Portfolio side",
+            options=[
+                "All Positions",
+                "Long Positions",
+                "Short Positions",
+            ],
+            index=0,
+            label_visibility="collapsed",
+            key="portfolio_position_filter",
+        )
 
     if portfolio_side == "Long Positions":
         display_df = long_positions.copy()
@@ -1114,7 +1303,7 @@ def render_portfolio() -> None:
 
         column_config[realised_return_col] = (
             st.column_config.NumberColumn(
-                "Realised Return",
+                realised_return_label,
                 format="%.2f%%",
             )
         )
@@ -1206,7 +1395,7 @@ def render_portfolio() -> None:
         ),
         realised_return_col: (
             st.column_config.NumberColumn(
-                "Realised Return",
+                realised_return_label,
                 format="%.2f%%",
             )
         ),
