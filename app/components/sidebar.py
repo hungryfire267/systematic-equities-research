@@ -341,17 +341,37 @@ def render_sidebar():
             unsafe_allow_html=True
         )
 
+        NAV_OPTIONS = [
+            "🪐  Overview",
+            "💠  Portfolio",
+            "🌊  Backtest Performance",
+            "🧩  Model Comparison",
+            "✨  Methodology"
+        ]
+
+        SLUG_TO_LABEL = {
+            "overview": "🪐  Overview",
+            "portfolio": "💠  Portfolio",
+            "backtest_performance": "🌊  Backtest Performance",
+            "model_comparison": "🧩  Model Comparison",
+            "methodology": "✨  Methodology",
+        }
+        LABEL_TO_SLUG = {v: k for k, v in SLUG_TO_LABEL.items()}
+
+        # Seed initial selection from the URL, once per session
+        if "nav_page" not in st.session_state:
+            url_slug = st.query_params.get("page", "overview")
+            st.session_state.nav_page = SLUG_TO_LABEL.get(url_slug, NAV_OPTIONS[0])
+
         page = st.radio(
             "Navigation",
-            options=[
-                "🪐  Overview",
-                "💠  Portfolio",
-                "🌊  Backtest Performance",
-                "🧩  Model Comparison",
-                "✨  Methodology"
-            ],
-            label_visibility="collapsed"
+            options=NAV_OPTIONS,
+            label_visibility="collapsed",
+            key="nav_page"
         )
+
+        # Keep the URL in sync with whatever is currently selected
+        st.query_params["page"] = LABEL_TO_SLUG.get(page, "overview")
 
         st.html(
             f"""
