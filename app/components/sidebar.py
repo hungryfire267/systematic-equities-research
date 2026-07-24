@@ -344,10 +344,10 @@ def render_sidebar():
         page = st.radio(
             "Navigation",
             options=[
-                "🏠  Overview",
-                "📊  Portfolio",
-                "📈  Backtest Performance",
-                "⚖️  Model Comparison",
+                "🪐  Overview",
+                "💠  Portfolio",
+                "🌊  Backtest Performance",
+                "🧩  Model Comparison",
                 "✨  Methodology"
             ],
             label_visibility="collapsed"

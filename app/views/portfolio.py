@@ -657,7 +657,7 @@ def build_sector_composition(
 def render_portfolio() -> None:
     st.set_page_config(
         page_title="ASX Alpha System - Portfolio",
-        page_icon="📊",
+        page_icon="💠",
         layout="wide"
     )
     st.html(PORTFOLIO_CSS)

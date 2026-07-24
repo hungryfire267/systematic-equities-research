@@ -17,7 +17,7 @@ from scripts.portfolio.metrics import GetMetrics
 
 st.set_page_config(
     page_title="ASX Alpha System",
-    page_icon="🏠",
+    page_icon="🪐",
     layout="wide"
 )
 
@@ -83,13 +83,13 @@ portfolio_returns = (
 
 selected_page = render_sidebar()
 
-if selected_page == "🏠  Overview":
+if selected_page == "🪐  Overview":
     render_overview()
-elif selected_page == "📊  Portfolio":
+elif selected_page == "💠  Portfolio":
     render_portfolio()
-elif selected_page == "📈  Backtest Performance": 
+elif selected_page == "🌊  Backtest Performance": 
     render_backtesting()
-elif selected_page == "⚖️  Model Comparison":
+elif selected_page == "🧩  Model Comparison":
     render_model_comparison()
 elif selected_page == "✨  Methodology":
     render_methodology_lessons()

@@ -2567,7 +2567,7 @@ def render_backtest_analysis(
 def render_backtesting():
     st.set_page_config(
         page_title="ASX Alpha System - Backtesting",
-        page_icon="📈",
+        page_icon="🌊",
         layout="wide"
     )
     st.html(BACKTEST_PAGE_CSS)

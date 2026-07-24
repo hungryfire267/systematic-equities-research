@@ -365,7 +365,7 @@ def render_overview(
     
     st.set_page_config(
         page_title="ASX Alpha System - Overview",
-        page_icon="🏠",
+        page_icon="🪐",
         layout="wide"
     )
 
