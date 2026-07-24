@@ -1052,25 +1052,25 @@ def render_overview(
     snapshot_cards = [
         (
             "snapshot-blue",
-            "📈",
+            "🧠",
             "Cross-Sectional Forecasting",
             "Models estimate each stock's five-day return and rank the investable universe.",
         ),
         (
             "snapshot-purple",
-            "🕒",
+            "🔍",
             "Walk-Forward Validation",
             "Each forecast uses only information available before its rebalance date.",
         ),
         (
             "snapshot-green",
-            "⚖️",
+            "💠",
             "Dollar-Neutral Portfolio",
             "Long and short books are formed from the strongest and weakest predictions.",
         ),
         (
             "snapshot-orange",
-            "🔁",
+            "⚡",
             "Weekly Rebalancing",
             "Positions are refreshed each week and assessed using realised forward returns.",
         ),
