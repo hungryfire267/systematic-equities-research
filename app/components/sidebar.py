@@ -206,6 +206,58 @@ def render_sidebar():
             color: #8A99AD;
         }
 
+
+
+        .author-card {
+            position: fixed;
+            left: 1rem;
+            top: 55%;
+            transform: translateY(-50%);
+            width: 13rem;
+            z-index: 20;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.7rem;
+            padding: 0.72rem 0.82rem;
+            border: 1px solid #D8E0EA;
+            border-radius: 12px;
+            background: #FFFFFF;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.07);
+        }
+
+        .author-card-text {
+            color: #334155;
+            font-size: 0.72rem;
+            font-weight: 750;
+            line-height: 1.25;
+        }
+
+        .author-github-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.85rem;
+            height: 1.85rem;
+            border-radius: 50%;
+            color: #0F172A;
+            text-decoration: none;
+            transition: 0.2s ease;
+        }
+
+        .author-github-link:hover {
+            background: #EAF1F8;
+            transform: translateY(-1px);
+        }
+
+        .author-github-icon {
+            width: 1.38rem;
+            height: 1.38rem;
+            display: block;
+            object-fit: contain;
+        }
+
         .strategy-overview-card {
             position: fixed;
             left: 1rem;
@@ -372,6 +424,41 @@ def render_sidebar():
 
         # Keep the URL in sync with whatever is currently selected
         st.query_params["page"] = LABEL_TO_SLUG.get(page, "overview")
+
+
+
+        github_svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path fill="#0F172A" d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.39.6.11.82-.26.82-.58 0-.29-.01-1.04-.02-2.04-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.21.08 1.84 1.24 1.84 1.24 1.07 1.84 2.81 1.31 3.5 1 .11-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23A11.5 11.5 0 0 1 12 6.32c1.02 0 2.04.14 3 .4 2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22 0 1.61-.01 2.9-.01 3.29 0 .32.22.69.82.57A12.01 12.01 0 0 0 24 12c0-6.63-5.37-12-12-12Z"/>
+        </svg>
+        """.strip()
+
+        github_icon_base64 = base64.b64encode(
+            github_svg.encode("utf-8")
+        ).decode("utf-8")
+
+        st.markdown(
+            f"""
+            <div class="author-card">
+                <div class="author-card-text">By Gordon Li</div>
+                <a
+                    class="author-github-link"
+                    href="https://github.com/hungryfire267/systematic-equities-research"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="View Gordon Li's GitHub repository"
+                    title="View GitHub repository"
+                >
+                    <img
+                        class="author-github-icon"
+                        src="data:image/svg+xml;base64,{github_icon_base64}"
+                        alt="GitHub"
+                    >
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         st.html(
             f"""

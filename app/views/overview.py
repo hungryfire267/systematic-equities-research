@@ -831,7 +831,7 @@ def render_overview(
             </div>
         </div>
         <div class="strategy-overview-body">
-            This project delivers a systematic, machine learning driven approach to equity investing across the ASX. Each week, {selected_model} + {selected_feature_set} forecasts relative performance across approximately 200 stocks, ranking the universe from strongest to weakest expected performer. The strategy takes long positions in the top 20 ranked stocks and short positions in the bottom 20, capturing the performance spread between them while limiting exposure to broad market direction. The result is a fully systematic process monitored in real time through an interactive dashboard.
+            This project delivers a systematic, machine learning driven approach to equity investing across the ASX200 universe. Each week, {selected_model} + {selected_feature_set} forecasts relative performance across approximately 200 stocks, ranking the universe from strongest to weakest expected performer. The strategy takes long positions in the top 20 ranked stocks and short positions in the bottom 20, capturing the performance spread between them while limiting exposure to broad market direction. The result is a fully systematic process monitored in real time through an interactive dashboard.
         </div>
         """,
         unsafe_allow_html=True,
