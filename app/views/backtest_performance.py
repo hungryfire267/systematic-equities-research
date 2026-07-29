@@ -47,6 +47,103 @@ FEATURE_NAMES = {
 ASX_DIR = BASE_DIR / "data" / "raw" / "asx"
 
 
+def _select_best_configuration() -> dict:
+    """
+    Recalculate the best model-feature configuration from the latest
+    backtest files.
+
+    Selection matches the Model Comparison page:
+    1. highest Sharpe ratio;
+    2. highest Sortino ratio;
+    3. highest Calmar ratio;
+    4. smallest maximum drawdown;
+    5. highest annual return.
+    """
+    candidates: list[dict] = []
+
+    for model_key, model_dir in MODEL_DIRECTORIES.items():
+        for feature_key, feature_name in FEATURE_NAMES.items():
+            portfolio_path = (
+                model_dir / f"final_portfolio_{feature_key}.parquet"
+            )
+
+            if not portfolio_path.exists():
+                continue
+
+            portfolio_df = pd.read_parquet(portfolio_path)
+            metrics, _ = GetMetrics(portfolio_df).run_data()
+
+            candidates.append(
+                {
+                    "model_key": model_key,
+                    "model_name": MODEL_NAMES[model_key],
+                    "feature_key": feature_key,
+                    "feature_name": feature_name,
+                    "sharpe_ratio": float(
+                        metrics.get("sharpe_ratio", np.nan)
+                    ),
+                    "sortino_ratio": float(
+                        metrics.get("sortino_ratio", np.nan)
+                    ),
+                    "calmar_ratio": float(
+                        metrics.get("calmar_ratio", np.nan)
+                    ),
+                    "max_drawdown": float(
+                        metrics.get("max_drawdown", np.nan)
+                    ),
+                    "annual_return": float(
+                        metrics.get("annual_return", np.nan)
+                    ),
+                }
+            )
+
+    if not candidates:
+        raise FileNotFoundError(
+            "No model backtest files were found in the configured "
+            "results directories."
+        )
+
+    ranking = (
+        pd.DataFrame(candidates)
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna(
+            subset=[
+                "sharpe_ratio",
+                "sortino_ratio",
+                "calmar_ratio",
+                "max_drawdown",
+                "annual_return",
+            ]
+        )
+        .sort_values(
+            by=[
+                "sharpe_ratio",
+                "sortino_ratio",
+                "calmar_ratio",
+                "max_drawdown",
+                "annual_return",
+            ],
+            ascending=[False, False, False, False, False],
+        )
+        .reset_index(drop=True)
+    )
+
+    if ranking.empty:
+        raise ValueError(
+            "Backtest files were found, but none contained complete "
+            "selection metrics."
+        )
+
+    winner = ranking.iloc[0]
+
+    return {
+        "model_key": str(winner["model_key"]),
+        "model_name": str(winner["model_name"]),
+        "feature_key": str(winner["feature_key"]),
+        "feature_name": str(winner["feature_name"]),
+    }
+
+
 def _load_selected_backtest() -> tuple[
     dict,
     pd.DataFrame,
@@ -55,47 +152,19 @@ def _load_selected_backtest() -> tuple[
     str,
 ]:
     """
-    Load the portfolio selected on the Model Comparison page.
+    Load the latest automatically selected portfolio.
 
-    Falls back to LightGBM + Stock Features when session state has
-    not yet been populated.
+    The winner is recalculated from the current backtest files on every
+    rerun, then written to session state for consistency across pages.
     """
-    selected_configuration = st.session_state.get(
-        "selected_configuration",
-        {}
-    )
+    # Recalculate the winner on every Streamlit rerun so this page never
+    # falls back to an outdated hard-coded model or stale session value.
+    selected_configuration = _select_best_configuration()
 
-    model_key = selected_configuration.get(
-        "model_key",
-        st.session_state.get(
-            "selected_model_key",
-            "lightgbm"
-        )
-    )
-
-    feature_key = selected_configuration.get(
-        "feature_key",
-        st.session_state.get(
-            "selected_feature_key",
-            "stock"
-        )
-    )
-
-    model_name = selected_configuration.get(
-        "model_name",
-        st.session_state.get(
-            "selected_model",
-            MODEL_NAMES.get(model_key, model_key)
-        )
-    )
-
-    feature_name = selected_configuration.get(
-        "feature_name",
-        st.session_state.get(
-            "selected_feature_set",
-            FEATURE_NAMES.get(feature_key, feature_key)
-        )
-    )
+    model_key = selected_configuration["model_key"]
+    feature_key = selected_configuration["feature_key"]
+    model_name = selected_configuration["model_name"]
+    feature_name = selected_configuration["feature_name"]
 
     if model_key not in MODEL_DIRECTORIES:
         raise KeyError(

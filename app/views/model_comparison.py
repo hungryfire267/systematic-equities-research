@@ -5,7 +5,10 @@ import plotly.graph_objects as go
 import streamlit as st
 import scipy.stats as stats
 from statsmodels.stats.contingency_tables import mcnemar
+from google import genai
 import os
+import json
+import html
 from pathlib import Path
 import sys
 
@@ -1942,6 +1945,593 @@ def select_prediction_winner(results: dict) -> dict:
     return ranking.iloc[0].to_dict()
 
 
+
+# ============================================================
+# Data-driven executive-summary utilities
+# ============================================================
+
+SUMMARY_MODEL = os.getenv("GEMINI_SUMMARY_MODEL", "gemini-2.5-flash")
+
+
+def _finite_float(value, default: float = 0.0) -> float:
+    """Convert NumPy/pandas values into JSON-safe Python floats."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return default
+
+    return numeric if np.isfinite(numeric) else default
+
+
+def build_summary_payload(
+    selection: dict,
+    hypothesis_p_values: dict,
+    alpha: float = 0.05
+) -> dict:
+    """
+    Build the factual payload used by both the deterministic fallback and GenAI.
+
+    Python remains responsible for:
+    - selecting the winning configuration;
+    - identifying each metric winner;
+    - deciding statistical significance.
+
+    GenAI is only allowed to explain these pre-computed facts.
+    """
+    ranking = selection["ranking"].copy()
+    winner = selection["winner"].copy()
+
+    numeric_columns = [
+        "sharpe_ratio",
+        "sortino_ratio",
+        "calmar_ratio",
+        "max_drawdown",
+        "annual_return",
+        "annual_volatility",
+        "win_rate",
+        "mae",
+        "mse",
+        "rmse",
+        "mean_ic",
+        "annualised_icir"
+    ]
+
+    for column in numeric_columns:
+        ranking[column] = pd.to_numeric(
+            ranking[column],
+            errors="coerce"
+        )
+
+    def highest(metric: str) -> dict:
+        row = ranking.loc[ranking[metric].idxmax()]
+        return {
+            "model": str(row["model_name"]),
+            "feature_set": str(row["feature_name"]),
+            "value": _finite_float(row[metric])
+        }
+
+    def lowest(metric: str) -> dict:
+        row = ranking.loc[ranking[metric].idxmin()]
+        return {
+            "model": str(row["model_name"]),
+            "feature_set": str(row["feature_name"]),
+            "value": _finite_float(row[metric])
+        }
+
+    # Drawdowns are normally negative. The highest value is the least negative
+    # and therefore represents the smallest drawdown.
+    metric_winners = {
+        "annual_return": highest("annual_return"),
+        "sharpe_ratio": highest("sharpe_ratio"),
+        "sortino_ratio": highest("sortino_ratio"),
+        "calmar_ratio": highest("calmar_ratio"),
+        "smallest_max_drawdown": highest("max_drawdown"),
+        "lowest_volatility": lowest("annual_volatility"),
+        "weekly_win_rate": highest("win_rate"),
+        "lowest_mae": lowest("mae"),
+        "lowest_rmse": lowest("rmse"),
+        "mean_ic": highest("mean_ic"),
+        "annualised_icir": highest("annualised_icir")
+    }
+
+    tests = {}
+
+    for test_name, p_value in hypothesis_p_values.items():
+        clean_p_value = _finite_float(p_value, default=1.0)
+        tests[test_name] = {
+            "p_value": clean_p_value,
+            "significant": clean_p_value < alpha
+        }
+
+    return {
+        "selection_rule": (
+            "Highest Sharpe ratio, followed by Sortino ratio, Calmar ratio, "
+            "maximum drawdown and annual return as deterministic tie-breakers."
+        ),
+        "selected_configuration": {
+            "model": str(winner["model_name"]),
+            "feature_set": str(winner["feature_name"]),
+            "annual_return": _finite_float(winner["annual_return"]),
+            "sharpe_ratio": _finite_float(winner["sharpe_ratio"]),
+            "sortino_ratio": _finite_float(winner["sortino_ratio"]),
+            "calmar_ratio": _finite_float(winner["calmar_ratio"]),
+            "max_drawdown": _finite_float(winner["max_drawdown"]),
+            "annual_volatility": _finite_float(
+                winner["annual_volatility"]
+            ),
+            "win_rate": _finite_float(winner["win_rate"]),
+            "mae": _finite_float(winner["mae"]),
+            "rmse": _finite_float(winner["rmse"]),
+            "mean_ic": _finite_float(winner["mean_ic"]),
+            "annualised_icir": _finite_float(
+                winner["annualised_icir"]
+            )
+        },
+        "metric_winners": metric_winners,
+        "hypothesis_tests": tests,
+        "alpha": alpha
+    }
+
+
+def build_deterministic_summary(payload: dict) -> dict:
+    """Create a fully factual summary without calling an external model."""
+    selected = payload["selected_configuration"]
+    winners = payload["metric_winners"]
+    tests = payload["hypothesis_tests"]
+
+    selected_model = selected["model"]
+    selected_features = selected["feature_set"]
+
+    return_winner = winners["annual_return"]
+    sharpe_winner = winners["sharpe_ratio"]
+    ranking_winner = winners["mean_ic"]
+    icir_winner = winners["annualised_icir"]
+    rmse_winner = winners["lowest_rmse"]
+    drawdown_winner = winners["smallest_max_drawdown"]
+
+    all_not_significant = (
+        bool(tests)
+        and not any(test["significant"] for test in tests.values())
+    )
+
+    if all_not_significant:
+        significance_sentence = (
+            "None of the reported hypothesis tests was statistically "
+            "significant at the 5% level, so the observed differences should "
+            "not be treated as proof of model superiority."
+        )
+    else:
+        significant_names = [
+            name.replace("_", " ")
+            for name, result in tests.items()
+            if result["significant"]
+        ]
+
+        significance_sentence = (
+            "Statistically significant evidence was detected for "
+            + ", ".join(significant_names)
+            + "; the remaining comparisons were not significant at the 5% "
+              "level."
+            if significant_names
+            else (
+                "The available hypothesis-test results do not establish "
+                "statistically significant model superiority."
+            )
+        )
+
+    findings = [
+        (
+            f"<strong>{return_winner['model']}</strong> using "
+            f"<strong>{return_winner['feature_set']}</strong> achieved the "
+            f"highest annual return at "
+            f"<strong>{return_winner['value']:.1%}</strong>."
+        ),
+        (
+            f"<strong>{sharpe_winner['model']}</strong> using "
+            f"<strong>{sharpe_winner['feature_set']}</strong> recorded the "
+            f"highest Sharpe ratio at "
+            f"<strong>{sharpe_winner['value']:.2f}</strong>."
+        ),
+        (
+            f"<strong>{ranking_winner['model']}</strong> produced the highest "
+            f"mean IC ({ranking_winner['value']:.4f}), while "
+            f"<strong>{icir_winner['model']}</strong> produced the highest "
+            f"annualised ICIR ({icir_winner['value']:.4f})."
+        ),
+        significance_sentence
+    ]
+
+    reasons = [
+        {
+            "label": "Selection criterion",
+            "text": (
+                f"Ranked first under the pre-defined Sharpe-led selection "
+                f"rule with a Sharpe ratio of "
+                f"{selected['sharpe_ratio']:.2f}."
+            )
+        },
+        {
+            "label": "Realised portfolio",
+            "text": (
+                f"Generated an annual return of "
+                f"{selected['annual_return']:.1%}, a Sortino ratio of "
+                f"{selected['sortino_ratio']:.2f} and a Calmar ratio of "
+                f"{selected['calmar_ratio']:.2f}."
+            )
+        },
+        {
+            "label": "Risk profile",
+            "text": (
+                f"Recorded a maximum drawdown of "
+                f"{selected['max_drawdown']:.1%} and annual volatility of "
+                f"{selected['annual_volatility']:.1%}."
+            )
+        }
+    ]
+
+    note = (
+        f"The selected configuration is <strong>{selected_model}</strong> "
+        f"with <strong>{selected_features}</strong>. "
+        f"{rmse_winner['model']} achieved the lowest RMSE, while "
+        f"{drawdown_winner['model']} recorded the smallest maximum drawdown. "
+        "The final choice follows the stated portfolio-selection rule rather "
+        "than allowing forecast error or a language model to override it."
+    )
+
+    return {
+        "overall_results": findings,
+        "selection_reasons": reasons,
+        "selection_note": note
+    }
+
+
+def _normalise_genai_summary(
+    raw_summary: dict,
+    fallback: dict
+) -> dict:
+    """Validate and sanitise GenAI output before placing it in HTML."""
+    if not isinstance(raw_summary, dict):
+        return fallback
+
+    findings = raw_summary.get("overall_results")
+    reasons = raw_summary.get("selection_reasons")
+    note = raw_summary.get("selection_note")
+
+    if (
+        not isinstance(findings, list)
+        or not 3 <= len(findings) <= 4
+        or not all(isinstance(item, str) for item in findings)
+    ):
+        return fallback
+
+    if (
+        not isinstance(reasons, list)
+        or len(reasons) != 3
+        or not all(
+            isinstance(item, dict)
+            and isinstance(item.get("label"), str)
+            and isinstance(item.get("text"), str)
+            for item in reasons
+        )
+    ):
+        return fallback
+
+    if not isinstance(note, str):
+        return fallback
+
+    # GenAI output is plain text. Escape it so it cannot inject HTML.
+    return {
+        "overall_results": [
+            html.escape(item.strip())
+            for item in findings
+        ],
+        "selection_reasons": [
+            {
+                "label": html.escape(item["label"].strip()),
+                "text": html.escape(item["text"].strip())
+            }
+            for item in reasons
+        ],
+        "selection_note": html.escape(note.strip())
+    }
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def generate_genai_summary(payload_json: str) -> dict:
+    """
+    Ask Gemini to narrate pre-computed results.
+
+    Failure is non-fatal: callers should fall back to the deterministic
+    summary whenever an API key, network connection or valid response is
+    unavailable.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+
+    payload = json.loads(payload_json)
+    fallback = build_deterministic_summary(payload)
+
+    prompt = f"""
+You are writing a concise executive summary for a quantitative model-
+comparison dashboard.
+
+The Python application has already selected the winning configuration.
+You must NOT select a different model, alter the selection rule, infer
+unreported results or claim statistical significance when p >= alpha.
+
+Use only the JSON facts below:
+{json.dumps(payload, indent=2)}
+
+Return valid JSON only with exactly this structure:
+{{
+  "overall_results": [
+    "Three or four concise factual findings.",
+    "Each finding should mention the relevant model and metric.",
+    "Distinguish prediction quality from realised portfolio performance."
+  ],
+  "selection_reasons": [
+    {{"label": "Short label", "text": "Reason one"}},
+    {{"label": "Short label", "text": "Reason two"}},
+    {{"label": "Short label", "text": "Reason three"}}
+  ],
+  "selection_note": "One concise trade-off and statistical caveat."
+}}
+
+Rules:
+- Australian English.
+- No markdown, HTML, headings or bullet symbols.
+- The selected model and feature set must exactly match
+  selected_configuration.
+- Do not describe one model as globally best merely because it wins one metric.
+- Do not say results are statistically significant unless the supplied test
+  says significant=true.
+- Keep each sentence concise.
+"""
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=SUMMARY_MODEL,
+        contents=prompt
+    )
+
+    response_text = (response.text or "").strip()
+    response_text = re.sub(
+        r"^```(?:json)?\s*|\s*```$",
+        "",
+        response_text,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+
+    parsed = json.loads(response_text)
+    return _normalise_genai_summary(parsed, fallback)
+
+
+def get_executive_summary(
+    selection: dict,
+    hypothesis_p_values: dict,
+    alpha: float = 0.05
+) -> tuple[dict, bool]:
+    """
+    Return the GenAI narrative when available, otherwise a deterministic one.
+
+    The boolean indicates whether GenAI was successfully used.
+    """
+    payload = build_summary_payload(
+        selection=selection,
+        hypothesis_p_values=hypothesis_p_values,
+        alpha=alpha
+    )
+
+    fallback = build_deterministic_summary(payload)
+    payload_json = json.dumps(payload, sort_keys=True)
+
+    try:
+        return generate_genai_summary(payload_json), True
+    except Exception:
+        return fallback, False
+
+
+def render_final_model_summary(
+    selection: dict,
+    hypothesis_p_values: dict,
+    model_colour_map: dict,
+    alpha: float = 0.05
+) -> None:
+    """Render the factual executive summary and deterministic selection."""
+    selected = selection["winner"]
+    selected_model = selected["model_name"]
+    selected_features = selected["feature_name"]
+    selected_colours = model_colour_map[selected_model]
+
+    summary, used_genai = get_executive_summary(
+        selection=selection,
+        hypothesis_p_values=hypothesis_p_values,
+        alpha=alpha
+    )
+
+    findings_html = "".join(
+        f"<li>{finding}</li>"
+        for finding in summary["overall_results"]
+    )
+
+    reasons_html = "".join(
+        (
+            '<div class="selection-reason">'
+            '<span class="selection-check">✓</span>'
+            f'<span><strong>{reason["label"]}:</strong> '
+            f'{reason["text"]}</span>'
+            '</div>'
+        )
+        for reason in summary["selection_reasons"]
+    )
+
+    source_label = (
+        "AI-assisted narrative; model selection calculated in Python."
+        if used_genai
+        else "Deterministic narrative; model selection calculated in Python."
+    )
+
+    st.html(
+        f"""
+        <style>
+        .conclusion-grid {{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:0.9rem;
+            margin:1rem 0 1.4rem 0;
+        }}
+
+        .conclusion-card {{
+            border:1px solid #E2E8F0;
+            border-radius:10px;
+            padding:1rem 1.15rem;
+            min-height:270px;
+            box-shadow:0 2px 7px rgba(15,23,42,0.04);
+        }}
+
+        .findings-card {{
+            border-left:5px solid #2563EB;
+            background:#F8FAFC;
+        }}
+
+        .selection-card {{
+            border-left:5px solid {selected_colours["accent"]};
+            background:{selected_colours["background"]};
+        }}
+
+        .conclusion-title {{
+            display:flex;
+            align-items:center;
+            gap:0.45rem;
+            margin-bottom:0.8rem;
+            font-size:1rem;
+            font-weight:800;
+        }}
+
+        .findings-title {{
+            color:#1D4ED8;
+        }}
+
+        .selection-title {{
+            color:{selected_colours["dark"]};
+        }}
+
+        .conclusion-list {{
+            margin:0;
+            padding-left:1.15rem;
+            color:#334155;
+            font-size:0.9rem;
+            line-height:1.58;
+        }}
+
+        .conclusion-list li {{
+            margin-bottom:0.58rem;
+        }}
+
+        .selected-model-label {{
+            color:#64748B;
+            font-size:0.78rem;
+            font-weight:700;
+            letter-spacing:0.05em;
+            text-transform:uppercase;
+            margin-bottom:0.2rem;
+        }}
+
+        .selected-model-name {{
+            color:{selected_colours["accent"]};
+            font-size:1.35rem;
+            font-weight:800;
+            margin-bottom:0.15rem;
+        }}
+
+        .selected-feature-name {{
+            color:#64748B;
+            font-size:0.8rem;
+            font-weight:700;
+            margin-bottom:0.8rem;
+        }}
+
+        .selection-reason {{
+            display:flex;
+            align-items:flex-start;
+            gap:0.5rem;
+            margin-bottom:0.58rem;
+            color:#334155;
+            font-size:0.9rem;
+            line-height:1.48;
+        }}
+
+        .selection-check {{
+            color:{selected_colours["accent"]};
+            font-weight:900;
+            line-height:1.45;
+        }}
+
+        .selection-note {{
+            border-top:1px solid {selected_colours["border"]};
+            margin-top:0.8rem;
+            padding-top:0.7rem;
+            color:#64748B;
+            font-size:0.84rem;
+            line-height:1.48;
+        }}
+
+        .summary-source {{
+            margin-top:0.65rem;
+            color:#94A3B8;
+            font-size:0.68rem;
+            font-weight:650;
+        }}
+
+        @media (max-width:900px) {{
+            .conclusion-grid {{
+                grid-template-columns:1fr;
+            }}
+
+            .conclusion-card {{
+                min-height:auto;
+            }}
+        }}
+        </style>
+
+        <div class="conclusion-grid">
+            <div class="conclusion-card findings-card">
+                <div class="conclusion-title findings-title">
+                    <span>◆</span>
+                    <span>Overall Results</span>
+                </div>
+
+                <ul class="conclusion-list">
+                    {findings_html}
+                </ul>
+
+                <div class="summary-source">{source_label}</div>
+            </div>
+
+            <div class="conclusion-card selection-card">
+                <div class="conclusion-title selection-title">
+                    <span>★</span>
+                    <span>Final Model Selection</span>
+                </div>
+
+                <div class="selected-model-label">Selected configuration</div>
+                <div class="selected-model-name">{selected_model}</div>
+                <div class="selected-feature-name">{selected_features}</div>
+
+                {reasons_html}
+
+                <div class="selection-note">
+                    {summary["selection_note"]}
+                </div>
+            </div>
+        </div>
+        """
+    )
+
+
+
 # ============================================================
 # Main Streamlit page
 # ============================================================
@@ -3231,12 +3821,12 @@ def render_model_comparison():
             background_colour="#EFF6FF"
         )
         
-        t_stat, p_value, statement = pipeline_market.mean_weekly_ic()
+        t_stat, ic_p_value, statement = pipeline_market.mean_weekly_ic()
         
         render_hypothesis_result(
             statistic_label="t-statistic",
             statistic_value=t_stat,
-            p_value=p_value,
+            p_value=ic_p_value,
             statement=statement,
             alpha=pipeline_market.alpha
         )
@@ -3259,12 +3849,12 @@ def render_model_comparison():
             background_colour="#F5F3FF"
         )
         
-        chi_squared_stat, p_value, statement = pipeline_market.mcnemar_test()
+        chi_squared_stat, hit_rate_p_value, statement = pipeline_market.mcnemar_test()
         
         render_hypothesis_result(
             statistic_label="χ² statistic",
             statistic_value=chi_squared_stat,
-            p_value=p_value,
+            p_value=hit_rate_p_value,
             statement=statement,
             alpha=pipeline_market.alpha
         )
@@ -3287,12 +3877,12 @@ def render_model_comparison():
             background_colour="#F0FDF4"
         )
         
-        t_stat, p_value, statement = pipeline_market.portfolio_returns_test()
+        t_stat, return_p_value, statement = pipeline_market.portfolio_returns_test()
         
         render_hypothesis_result(
             statistic_label="t-statistic",
             statistic_value=t_stat,
-            p_value=p_value,
+            p_value=return_p_value,
             statement=statement,
             alpha=pipeline_market.alpha
         )
@@ -3342,186 +3932,17 @@ def render_model_comparison():
                 alpha=pipeline_market.alpha
             )
         
-        st.markdown(
-            """
-            <style>
-            .conclusion-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 0.9rem;
-                margin: 1rem 0 1.4rem 0;
-            }
+        hypothesis_p_values = {
+            "mean_weekly_ic": ic_p_value,
+            "directional_hit_rate": hit_rate_p_value,
+            "mean_weekly_return": return_p_value,
+            "sharpe_ratio": sharpe_p_value
+        }
 
-            .conclusion-card {
-                border: 1px solid #E2E8F0;
-                border-radius: 10px;
-                background: #FFFFFF;
-                padding: 1rem 1.15rem;
-                min-height: 245px;
-                box-shadow: 0 2px 7px rgba(15, 23, 42, 0.04);
-            }
-
-            .findings-card {
-                border-left: 5px solid #2563EB;
-                background: #F8FAFC;
-            }
-
-            .selection-card {
-                border-left: 5px solid #F59E0B;
-                background: #FFFBEB;
-            }
-
-            .conclusion-title {
-                display: flex;
-                align-items: center;
-                gap: 0.45rem;
-                margin-bottom: 0.8rem;
-                font-size: 1rem;
-                font-weight: 800;
-            }
-
-            .findings-title {
-                color: #1D4ED8;
-            }
-
-            .selection-title {
-                color: #92400E;
-            }
-
-            .conclusion-list {
-                margin: 0;
-                padding-left: 1.15rem;
-                color: #334155;
-                font-size: 0.9rem;
-                line-height: 1.58;
-            }
-
-            .conclusion-list li {
-                margin-bottom: 0.5rem;
-            }
-
-            .selected-model-label {
-                color: #64748B;
-                font-size: 0.78rem;
-                font-weight: 700;
-                letter-spacing: 0.05em;
-                text-transform: uppercase;
-                margin-bottom: 0.2rem;
-            }
-
-            .selected-model-name {
-                color: #D97706;
-                font-size: 1.35rem;
-                font-weight: 800;
-                margin-bottom: 0.75rem;
-            }
-
-            .selection-reason {
-                display: flex;
-                align-items: flex-start;
-                gap: 0.5rem;
-                margin-bottom: 0.58rem;
-                color: #334155;
-                font-size: 0.9rem;
-                line-height: 1.48;
-            }
-
-            .selection-check {
-                color: #D97706;
-                font-weight: 900;
-                line-height: 1.45;
-            }
-
-            .selection-note {
-                border-top: 1px solid #FDE68A;
-                margin-top: 0.8rem;
-                padding-top: 0.7rem;
-                color: #64748B;
-                font-size: 0.84rem;
-                line-height: 1.48;
-            }
-
-            @media (max-width: 900px) {
-                .conclusion-grid {
-                    grid-template-columns: 1fr;
-                }
-
-                .conclusion-card {
-                    min-height: auto;
-                }
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
+        render_final_model_summary(
+            selection=selection,
+            hypothesis_p_values=hypothesis_p_values,
+            model_colour_map=MODEL_COLOURS,
+            alpha=pipeline_market.alpha
         )
 
-        conclusion_html = (
-            '<div class="conclusion-grid">'
-
-                '<div class="conclusion-card findings-card">'
-                    '<div class="conclusion-title findings-title">'
-                        '<span>◆</span>'
-                        '<span>Overall Results</span>'
-                    '</div>'
-
-                    '<ul class="conclusion-list">'
-                        '<li>'
-                            '<strong>Decision Tree</strong> achieved the strongest realised '
-                            'portfolio performance, including the highest annual return and '
-                            'the best Sharpe, Sortino and Calmar ratios.'
-                        '</li>'
-
-                        '<li>'
-                            '<strong>XGBoost</strong> recorded the strongest ranking results, '
-                            'with the highest Information Coefficient and directional hit rate.'
-                        '</li>'
-
-                        '<li>'
-                            'The three models followed broadly similar performance patterns, '
-                            'suggesting they captured many of the same relationships in the data.'
-                        '</li>'
-
-                        '<li>'
-                            'The hypothesis tests found no statistically significant evidence '
-                            'that one model consistently outperformed the others at the 5% level.'
-                        '</li>'
-                    '</ul>'
-                '</div>'
-
-                '<div class="conclusion-card selection-card">'
-                    '<div class="conclusion-title selection-title">'
-                        '<span>★</span>'
-                        '<span>Final Model Selection</span>'
-                    '</div>'
-
-                    '<div class="selected-model-label">Selected model</div>'
-                    '<div class="selected-model-name">Decision Tree</div>'
-
-                    '<div class="selection-reason">'
-                        '<span class="selection-check">✓</span>'
-                        '<span><strong>Forecast accuracy:</strong> lowest MAE and RMSE.</span>'
-                    '</div>'
-
-                    '<div class="selection-reason">'
-                        '<span class="selection-check">✓</span>'
-                        '<span><strong>Portfolio performance:</strong> highest annual return, '
-                        'Sharpe, Sortino and Calmar ratios.</span>'
-                    '</div>'
-
-                    '<div class="selection-reason">'
-                        '<span class="selection-check">✓</span>'
-                        '<span><strong>Risk and simplicity:</strong> smallest maximum drawdown '
-                        'with lower model complexity and greater interpretability.</span>'
-                    '</div>'
-
-                    '<div class="selection-note">'
-                        'XGBoost produced slightly stronger ranking metrics, but this advantage '
-                        'did not translate into better realised portfolio performance and was '
-                        'not statistically significant.'
-                    '</div>'
-                '</div>'
-
-            '</div>'
-        )
-
-        st.markdown(conclusion_html, unsafe_allow_html=True)
