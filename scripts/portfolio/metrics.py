@@ -4,63 +4,140 @@ import pandas as pd
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-class GetMetrics: 
-    def __init__(self, portfolio_df): 
-        self.portfolio_df = portfolio_df
-    
-    def get_strategy_returns(self): 
+class GetMetrics:
+    PERIODS_PER_YEAR = 52
+
+    def __init__(self, portfolio_df: pd.DataFrame):
+        self.portfolio_df = portfolio_df.copy()
+
+    def get_strategy_returns(self) -> pd.DataFrame:
+        required = {"Date", "portfolio_return"}
+        missing = required.difference(self.portfolio_df.columns)
+
+        if missing:
+            raise KeyError(
+                f"Portfolio data is missing columns: {sorted(missing)}"
+            )
+
         strategy_returns = (
             self.portfolio_df
-            .groupby("Date")["portfolio_return"]
+            .assign(
+                Date=lambda df: pd.to_datetime(
+                    df["Date"],
+                    errors="coerce"
+                ),
+                portfolio_return=lambda df: pd.to_numeric(
+                    df["portfolio_return"],
+                    errors="coerce"
+                )
+            )
+            .dropna(subset=["Date", "portfolio_return"])
+            .groupby("Date", as_index=False)["portfolio_return"]
             .sum()
-            .reset_index()
+            .sort_values("Date")
+            .reset_index(drop=True)
         )
-        
+
         return strategy_returns
-    
-    def get_sortino_ratio(self, r, annual_returns): 
-        downside_returns = r[r < 0]
-        downside_vol = downside_returns.std(ddof=1) * np.sqrt(52)
-        sortino_ratio = annual_returns / downside_vol
-        return sortino_ratio
-    
-    def run_data(self): 
+
+    def get_sortino_ratio(
+        self,
+        returns: pd.Series,
+        minimum_acceptable_return: float = 0.0
+    ) -> float:
+        downside = np.minimum(
+            returns - minimum_acceptable_return,
+            0.0
+        )
+
+        downside_deviation = (
+            np.sqrt(np.mean(np.square(downside)))
+            * np.sqrt(self.PERIODS_PER_YEAR)
+        )
+
+        if downside_deviation == 0:
+            return np.nan
+
+        annualised_excess_return = (
+            returns.mean() - minimum_acceptable_return
+        ) * self.PERIODS_PER_YEAR
+
+        return annualised_excess_return / downside_deviation
+
+    @staticmethod
+    def get_max_drawdown(returns: pd.Series) -> float:
+        wealth = (1 + returns).cumprod().to_numpy()
+        wealth = np.insert(wealth, 0, 1.0)
+
+        running_peak = np.maximum.accumulate(wealth)
+        drawdown = wealth / running_peak - 1
+
+        return float(drawdown.min())
+
+    def run_data(self):
         strategy_returns = self.get_strategy_returns()
-        r = strategy_returns["portfolio_return"].dropna()
-        
-        annual_return = (1 + r).prod() ** (52 / len(r)) - 1
-        
-        annual_vol = r.std() * np.sqrt(52)
-        
-        sharpe = r.mean() / r.std() * np.sqrt(52)
 
-        sortino_ratio = self.get_sortino_ratio(r, annual_return)
-        
-        
-        equity = (1 + r).cumprod()
-        total_return = equity.iloc[-1] - 1
-        drawdown = equity / equity.cummax() - 1
-        max_drawdown = drawdown.min()
-        
-        calmar_ratio = annual_return / np.abs(max_drawdown)
-        win_rate = (r > 0).mean()
-        worst_week_row = r.min()
+        r = (
+            strategy_returns["portfolio_return"]
+            .replace([np.inf, -np.inf], np.nan)
+            .dropna()
+            .astype(float)
+        )
 
-        
-        n_rebalances = len(r)
-        backtest_metrics_dict = { 
-            "annual_return": annual_return, 
+        if len(r) < 2:
+            raise ValueError(
+                "At least two valid return observations are required."
+            )
+
+        if (r <= -1).any():
+            raise ValueError(
+                "Portfolio returns cannot be less than or equal to -100%."
+            )
+
+        total_return = (1 + r).prod() - 1
+
+        annual_return = (
+            (1 + total_return)
+            ** (self.PERIODS_PER_YEAR / len(r))
+            - 1
+        )
+
+        weekly_volatility = r.std(ddof=1)
+        annual_volatility = (
+            weekly_volatility
+            * np.sqrt(self.PERIODS_PER_YEAR)
+        )
+
+        sharpe_ratio = (
+            r.mean() / weekly_volatility
+            * np.sqrt(self.PERIODS_PER_YEAR)
+            if weekly_volatility > 0
+            else np.nan
+        )
+
+        sortino_ratio = self.get_sortino_ratio(r)
+        max_drawdown = self.get_max_drawdown(r)
+
+        calmar_ratio = (
+            annual_return / abs(max_drawdown)
+            if max_drawdown < 0
+            else np.nan
+        )
+
+        metrics = {
+            "annual_return": annual_return,
             "total_return": total_return,
-            "sharpe_ratio": sharpe, 
+            "sharpe_ratio": sharpe_ratio,
             "sortino_ratio": sortino_ratio,
-            "annual_volatility": annual_vol,
+            "annual_volatility": annual_volatility,
             "max_drawdown": max_drawdown,
-            "win_rate": win_rate,
-            "calmar_ratio": calmar_ratio, 
-            "worst_week": worst_week_row
+            "win_rate": (r > 0).mean(),
+            "calmar_ratio": calmar_ratio,
+            "worst_week": r.min(),
+            "n_rebalances": len(r),
         }
-        
-        return backtest_metrics_dict, strategy_returns
+
+        return metrics, strategy_returns
     
 class GetPredictionMetrics: 
     def __init__(self, portfolio_df): 

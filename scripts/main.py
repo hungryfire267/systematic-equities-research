@@ -1,7 +1,16 @@
+import warnings
+
+warnings.filterwarnings(
+    "error",
+    message="invalid value encountered in subtract",
+    category=RuntimeWarning,
+)
+
 from functools import reduce
 import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from scripts.preprocessing.build_feature_matrix import FeatureMatrixBuilder
@@ -303,28 +312,29 @@ def collapse_market_feature(
             f"{feature_name} contains no feature-value columns."
         )
 
-    feature_df[value_columns] = feature_df[
-        value_columns
-    ].apply(
-        pd.to_numeric,
-        errors="coerce",
+    # Build the numeric block separately rather than inserting another
+    # column into a potentially fragmented 200-column dataframe.
+    numeric_values = (
+        feature_df[value_columns]
+        .apply(pd.to_numeric, errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
     )
 
-    feature_df[feature_name] = (
-        feature_df[value_columns]
-        .mean(
-            axis=1,
-            skipna=True,
-        )
+    collapsed_values = numeric_values.mean(
+        axis=1,
+        skipna=True,
+    )
+
+    collapsed_df = pd.DataFrame(
+        {
+            "Date": feature_df["Date"].to_numpy(copy=False),
+            feature_name: collapsed_values.to_numpy(copy=False),
+        }
     )
 
     return (
-        feature_df[
-            [
-                "Date",
-                feature_name,
-            ]
-        ]
+        collapsed_df
+        .dropna(subset=["Date"])
         .sort_values("Date")
         .drop_duplicates(
             subset=["Date"],
@@ -407,6 +417,60 @@ def prepare_macro_matrix(
         )
         .reset_index(drop=True)
     )
+
+
+
+def validate_feature_matrix(
+    dataframe: pd.DataFrame,
+    dataframe_name: str,
+) -> None:
+    """Fail early on duplicate keys or infinite values and report missingness."""
+    required_keys = {"Date", "Ticker"}
+    missing_keys = required_keys.difference(dataframe.columns)
+
+    if missing_keys:
+        raise ValueError(
+            f"{dataframe_name} is missing key columns: "
+            f"{sorted(missing_keys)}"
+        )
+
+    duplicate_count = int(
+        dataframe.duplicated(["Date", "Ticker"]).sum()
+    )
+    if duplicate_count:
+        raise ValueError(
+            f"{dataframe_name} contains {duplicate_count:,} duplicate "
+            "(Date, Ticker) rows."
+        )
+
+    numeric_columns = dataframe.select_dtypes(
+        include=[np.number]
+    ).columns
+
+    if len(numeric_columns):
+        numeric_values = dataframe[numeric_columns].to_numpy()
+        infinite_count = int(np.isinf(numeric_values).sum())
+
+        if infinite_count:
+            raise ValueError(
+                f"{dataframe_name} contains {infinite_count:,} infinite "
+                "numeric values. Replace or investigate them before modelling."
+            )
+
+        missing_rate = (
+            dataframe[numeric_columns]
+            .isna()
+            .mean()
+            .sort_values(ascending=False)
+        )
+
+        high_missing = missing_rate[missing_rate > 0.50]
+        if not high_missing.empty:
+            print(
+                f"Warning: {dataframe_name} has columns above 50% missing:"
+            )
+            for column, rate in high_missing.items():
+                print(f"  - {column}: {rate:.1%}")
 
 
 def validate_matrix_columns(
@@ -571,8 +635,14 @@ if __name__ == "__main__":
 
     feature_matrix_stock = (
         feature_matrix_stock
+        .replace([np.inf, -np.inf], np.nan)
         .sort_values(["Date", "Ticker"])
         .reset_index(drop=True)
+    )
+
+    validate_feature_matrix(
+        feature_matrix_stock,
+        "stock feature matrix",
     )
 
 
@@ -594,10 +664,20 @@ if __name__ == "__main__":
         .reset_index(drop=True)
     )
 
+    feature_matrix_market = feature_matrix_market.replace(
+        [np.inf, -np.inf],
+        np.nan,
+    )
+
     validate_matrix_columns(
         stock_matrix=feature_matrix_stock,
         market_matrix=market_df,
         combined_matrix=feature_matrix_market,
+    )
+
+    validate_feature_matrix(
+        feature_matrix_market,
+        "stock + market feature matrix",
     )
 
 
@@ -629,8 +709,14 @@ if __name__ == "__main__":
             how="left",
             validate="many_to_one",
         )
+        .replace([np.inf, -np.inf], np.nan)
         .sort_values(["Date", "Ticker"])
         .reset_index(drop=True)
+    )
+
+    validate_feature_matrix(
+        feature_matrix_macro_market,
+        "stock + market + macro feature matrix",
     )
 
 

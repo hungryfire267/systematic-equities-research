@@ -1491,8 +1491,6 @@ def _create_drawdown_figure(
                 color=DRAWDOWN_COLOURS["strategy"],
                 width=2.2
             ),
-            fill="tozeroy",
-            fillcolor="rgba(16, 185, 129, 0.12)",
             hovertemplate=(
                 "%{x|%d %b %Y}"
                 "<br>Drawdown: %{y:.1%}"
@@ -2195,237 +2193,216 @@ def render_return_summary(
     strategy_metrics: dict,
     benchmark_metrics: dict,
     strategy_name: str,
+    model_name: str,
+    dataset_name: str,
     benchmark_name: str = "ASX 200",
     container_height: int = BACKTEST_CARD_HEIGHT,
 ) -> None:
     """
-    Render a risk and return comparison table.
+    Render a centred risk and return comparison table with separate
+    model and dataset columns.
     """
 
     metrics = [
-        ("Annual Return", "annual_return", True, True),
-        ("Total Return", "total_return", True, True),
-        ("Annual Volatility", "annual_volatility", True, False),
-        ("Sharpe Ratio", "sharpe_ratio", False, True),
-        ("Sortino Ratio", "sortino_ratio", False, True),
-        ("Maximum Drawdown", "max_drawdown", True, True),
-        ("Calmar Ratio", "calmar_ratio", False, True),
-        ("Weekly Win Rate", "win_rate", True, True),
-        ("Worst Week", "worst_week", True, True)
+        ("Annual Return", "annual_return", True),
+        ("Total Return", "total_return", True),
+        ("Annual Volatility", "annual_volatility", True),
+        ("Sharpe Ratio", "sharpe_ratio", False),
+        ("Sortino Ratio", "sortino_ratio", False),
+        ("Maximum Drawdown", "max_drawdown", True),
+        ("Calmar Ratio", "calmar_ratio", False),
+        ("Weekly Win Rate", "win_rate", True),
+        ("Worst Week", "worst_week", True),
     ]
 
     rows = []
 
-    for label, key, as_percentage, higher_is_better in metrics:
+    for label, key, as_percentage in metrics:
         strategy_value = strategy_metrics.get(key)
         benchmark_value = benchmark_metrics.get(key)
 
         strategy_display = _format_value(
             strategy_value,
-            as_percentage
+            as_percentage,
         )
 
         benchmark_display = _format_value(
             benchmark_value,
-            as_percentage
+            as_percentage,
         )
-
-        if (
-            strategy_value is None
-            or benchmark_value is None
-            or pd.isna(strategy_value)
-            or pd.isna(benchmark_value)
-        ):
-            winner = "—"
-            winner_class = "winner-neutral"
-        elif strategy_value == benchmark_value:
-            winner = "Tie"
-            winner_class = "winner-neutral"
-        else:
-            strategy_wins = (
-                strategy_value > benchmark_value
-                if higher_is_better
-                else strategy_value < benchmark_value
-            )
-            strategy_winner_label = strategy_name.replace(" Features", "")
-            winner = strategy_winner_label if strategy_wins else benchmark_name
-            winner_class = (
-                "winner-strategy" if strategy_wins else "winner-benchmark"
-            )
 
         rows.append(
             f"""
             <tr>
-                <td class="metric-name">{escape(label)}</td>
-                <td class="metric-value">{strategy_display}</td>
-                <td class="metric-value">{benchmark_display}</td>
-                <td class="winner-cell"><span class="winner-pill {winner_class}">{escape(winner)}</span></td>
+                <td class="summary-cell metric-name">
+                    {escape(label)}
+                </td>
+                <td class="summary-cell metric-value">
+                    {strategy_display}
+                </td>
+                <td class="summary-cell metric-value">
+                    {benchmark_display}
+                </td>
+                <td class="summary-cell configuration-cell">
+                    {escape(model_name)}
+                </td>
+                <td class="summary-cell configuration-cell">
+                    {escape(dataset_name)}
+                </td>
             </tr>
             """
         )
 
     rows_html = "".join(rows)
 
-    html = f"""
-        <style>
-            .return-summary-card {{
-                width: 100%;
-                height: {container_height}px;
-                padding: 20px;
-                border: 1px solid #DCE3EC;
-                border-radius: 14px;
-                background: #FFFFFF;
-                box-sizing: border-box;
+    summary_html = f"""
+    <style>
+        .return-summary-card {{
+            width: 100%;
+            height: {container_height}px;
+            padding: 20px;
+            border: 1px solid #DCE3EC;
+            border-radius: 14px;
+            background: #FFFFFF;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }}
 
-                display: flex;                 /* <-- Added */
-                flex-direction: column;        /* <-- Added */
-            }}
+        .return-summary-title {{
+            margin: 0;
+            color: #0F172A;
+            font-size: 16px;
+            font-weight: 700;
+            line-height: 1.3;
+            text-align: left;
+        }}
 
-            .return-summary-title {{
-                margin: 0;
-                color: #0F172A;
-                font-size: 16px;
-                font-weight: 700;
-                line-height: 1.3;
-            }}
+        .return-summary-caption {{
+            margin-top: 5px;
+            margin-bottom: 16px;
+            color: #64748B;
+            font-size: 13px;
+            line-height: 1.4;
+            text-align: left;
+        }}
 
-            .return-summary-caption {{
-                margin-top: 5px;
-                margin-bottom: 16px;
-                color: #64748B;
-                font-size: 13px;
-                line-height: 1.4;
-            }}
+        .return-summary-table-wrapper {{
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }}
 
-            .return-summary-table-wrapper {{
-                width: 100%;
-                flex: 1;
-                min-height: 0;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-            }}
+        .return-summary-table {{
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }}
 
-            .return-summary-table {{
-                width: 100%;
-                border-collapse: collapse;
-                table-layout: fixed;
-            }}
+        .return-summary-table th {{
+            padding: 11px 7px;
+            border-bottom: 1px solid #CBD5E1;
+            background: #F8FAFC;
+            color: #475569;
+            font-size: 11px;
+            font-weight: 750;
+            line-height: 1.3;
+            text-align: center;
+            vertical-align: middle;
+        }}
 
-            .return-summary-table th {{
-                padding: 11px 10px;
-                border-bottom: 1px solid #CBD5E1;
-                background: #F8FAFC;
-                color: #475569;
-                font-size: 12px;
-                font-weight: 700;
-                text-align: right;
-            }}
+        .return-summary-table th:first-child {{
+            width: 21%;
+            border-top-left-radius: 8px;
+        }}
 
-            .return-summary-table th:first-child {{
-                width: 27%;
-                text-align: left;
-                border-top-left-radius: 8px;
-            }}
+        .return-summary-table th:nth-child(2) {{
+            width: 18%;
+        }}
 
-            .return-summary-table th:last-child {{
-                border-top-right-radius: 8px;
-            }}
+        .return-summary-table th:nth-child(3) {{
+            width: 16%;
+        }}
 
-            .return-summary-table td {{
-                padding: 10px 10px;
-                border-bottom: 1px solid #E2E8F0;
-                color: #0F172A;
-                font-size: 13px;
-            }}
+        .return-summary-table th:nth-child(4) {{
+            width: 20%;
+        }}
 
-            .return-summary-table tbody tr:last-child td {{
-                border-bottom: none;
-            }}
+        .return-summary-table th:nth-child(5) {{
+            width: 25%;
+            border-top-right-radius: 8px;
+        }}
 
-            .metric-name {{
-                font-weight: 600;
-                text-align: left;
-            }}
+        .return-summary-table td {{
+            padding: 10px 7px;
+            border-bottom: 1px solid #E2E8F0;
+            color: #0F172A;
+            font-size: 12px;
+            line-height: 1.3;
+            text-align: center;
+            vertical-align: middle;
+        }}
 
-            .metric-value {{
-                font-variant-numeric: tabular-nums;
-                text-align: right;
-            }}
+        .return-summary-table tbody tr:last-child td {{
+            border-bottom: none;
+        }}
 
-            .winner-cell {{
-                text-align: center;
-                font-size: 11px;
-                font-weight: 750;
-                line-height: 1.25;
-            }}
+        .return-summary-table tbody tr:hover {{
+            background: #F8FAFC;
+        }}
 
-            .winner-pill {{
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                max-width: 100%;
-                padding: 4px 8px;
-                border-radius: 999px;
-                white-space: normal;
-            }}
+        .summary-cell {{
+            text-align: center;
+            vertical-align: middle;
+        }}
 
-            .winner-strategy {{
-                color: #047857;
-                background: #ECFDF5;
-                border: 1px solid #A7F3D0;
-            }}
+        .metric-name {{
+            font-weight: 650;
+        }}
 
-            .winner-benchmark {{
-                color: #334155;
-                background: #F1F5F9;
-                border: 1px solid #CBD5E1;
-            }}
+        .metric-value {{
+            font-variant-numeric: tabular-nums;
+            font-weight: 500;
+        }}
 
-            .winner-neutral {{
-                color: #64748B;
-                background: #F8FAFC;
-                border: 1px solid #E2E8F0;
-            }}
-        </style>
+        .configuration-cell {{
+            color: #475569;
+            font-size: 11px;
+            font-weight: 650;
+            overflow-wrap: anywhere;
+        }}
+    </style>
 
-        <div class="return-summary-card">
-
-            <div class="return-summary-title">
-                Risk &amp; Return Summary
-            </div>
-
-            <div class="return-summary-caption">
-                Comparison of portfolio performance against the benchmark.
-            </div>
-
-            <div class="return-summary-table-wrapper">
-
-                <table class="return-summary-table">
-
-                    <thead>
-                        <tr>
-                            <th>Metric</th>
-                            <th>{escape(strategy_name)}</th>
-                            <th>{escape(benchmark_name)}</th>
-                            <th>Winner</th>
-                        </tr>
-                    </thead>
-
-                    <tbody>
-                        {rows_html}
-                    </tbody>
-
-                </table>
-
-            </div>
-
+    <div class="return-summary-card">
+        <div class="return-summary-title">
+            Risk &amp; Return Summary
         </div>
-        """
 
-    st.html(html)
+        <div class="return-summary-caption">
+            Comparison of portfolio performance against the benchmark.
+        </div>
 
+        <div class="return-summary-table-wrapper">
+            <table class="return-summary-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Strategy</th>
+                        <th>{escape(benchmark_name)}</th>
+                        <th>Model</th>
+                        <th>Dataset</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
 
+    st.html(summary_html)
 
 def _metric_value(metrics: dict, key: str) -> float:
     """Return a metric as a float, falling back to NaN when unavailable."""
@@ -2735,7 +2712,9 @@ def render_backtesting():
             strategy_metrics=portfolio_metrics,
             benchmark_metrics=asx_metrics_full,
             strategy_name=STRATEGY_NAME,
-            benchmark_name="ASX 200"
+            model_name=st.session_state["selected_model"],
+            dataset_name=SELECTED_FEATURE_NAME,
+            benchmark_name="ASX 200",
         )
 
     with right_column:

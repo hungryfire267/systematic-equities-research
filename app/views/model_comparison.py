@@ -607,7 +607,7 @@ def render_portfolio_performance_table(
 
         rows += (
             "<tr>"
-            f'<td style="text-align:left;">{label}</td>'
+            f'<td style="text-align:center;">{label}</td>'
             f"<td>{displays['Decision Tree']}</td>"
             f"<td>{displays['LightGBM']}</td>"
             f"<td>{displays['XGBoost']}</td>"
@@ -647,6 +647,7 @@ def render_portfolio_performance_table(
         "padding:0.58rem 0.7rem;"
         "border-top:1px solid #E2E8F0;"
         "text-align:center;"
+        "vertical-align:middle;"
         "}"
         "table th {"
         "font-weight:700;"

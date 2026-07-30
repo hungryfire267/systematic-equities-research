@@ -9,73 +9,223 @@ class MeanVarianceOptimiser:
         selected_df: pd.DataFrame,
         returns_df: pd.DataFrame,
         covariance_window: int = 63,
+        minimum_observations: int = 40,
         weight_bound: float = 0.10,
         ridge: float = 1e-4,
     ):
         self.selected_df = selected_df.copy()
         self.returns_df = returns_df.copy()
+
         self.covariance_window = covariance_window
+        self.minimum_observations = minimum_observations
         self.weight_bound = weight_bound
         self.ridge = ridge
 
-        self.selected_df["Date"] = pd.to_datetime(self.selected_df["Date"])
+        required_columns = {
+            "Date",
+            "Ticker",
+            "side",
+            "prediction",
+        }
+
+        missing = required_columns.difference(
+            self.selected_df.columns
+        )
+
+        if missing:
+            raise ValueError(
+                f"selected_df is missing columns: {sorted(missing)}"
+            )
+
+        self.selected_df["Date"] = pd.to_datetime(
+            self.selected_df["Date"]
+        )
 
         if "Date" in self.returns_df.columns:
-            self.returns_df["Date"] = pd.to_datetime(self.returns_df["Date"])
+            self.returns_df["Date"] = pd.to_datetime(
+                self.returns_df["Date"]
+            )
             self.returns_df = self.returns_df.set_index("Date")
 
-        self.returns_df.index = pd.to_datetime(self.returns_df.index)
+        self.returns_df.index = pd.to_datetime(
+            self.returns_df.index
+        )
 
-    def neg_sharpe(self, weights, mu, cov):
-        port_return = weights @ mu
-        port_vol = np.sqrt(weights @ cov @ weights)
-        port_vol = max(port_vol, 1e-8)
-        return -(port_return / port_vol)
+        self.returns_df = (
+            self.returns_df
+            .apply(pd.to_numeric, errors="coerce")
+            .replace([np.inf, -np.inf], np.nan)
+            .sort_index()
+        )
 
-    def optimise_side(self, tickers, mu, cov, side):
+    @staticmethod
+    def neg_sharpe(
+        weights: np.ndarray,
+        mu: np.ndarray,
+        covariance: np.ndarray,
+    ) -> float:
+        expected_return = float(weights @ mu)
+
+        variance = float(
+            weights @ covariance @ weights
+        )
+
+        volatility = np.sqrt(max(variance, 1e-12))
+
+        return -(expected_return / volatility)
+
+    def prepare_inputs(
+        self,
+        date: pd.Timestamp,
+        side_df: pd.DataFrame,
+    ) -> tuple[list[str], np.ndarray, np.ndarray]:
+
+        requested_tickers = side_df["Ticker"].tolist()
+
+        missing_tickers = [
+            ticker
+            for ticker in requested_tickers
+            if ticker not in self.returns_df.columns
+        ]
+
+        if missing_tickers:
+            print(
+                f"{date.date()}: missing return history for "
+                f"{missing_tickers}"
+            )
+
+        tickers = [
+            ticker
+            for ticker in requested_tickers
+            if ticker in self.returns_df.columns
+        ]
+
+        history = (
+            self.returns_df.loc[
+                self.returns_df.index < date,
+                tickers,
+            ]
+            .tail(self.covariance_window)
+        )
+
+        valid_tickers = history.columns[
+            history.notna().sum()
+            >= self.minimum_observations
+        ].tolist()
+
+        if not valid_tickers:
+            raise ValueError(
+                "No tickers have sufficient return history."
+            )
+
+        history = (
+            history[valid_tickers]
+            .dropna(axis=0, how="any")
+        )
+
+        if len(history) < self.minimum_observations:
+            raise ValueError(
+                "Insufficient common observations for covariance: "
+                f"{len(history)}"
+            )
+
+        prediction_series = (
+            side_df
+            .drop_duplicates("Ticker", keep="last")
+            .set_index("Ticker")["prediction"]
+            .astype(float)
+        )
+
+        mu = prediction_series.loc[
+            valid_tickers
+        ].to_numpy()
+
+        covariance = history.cov().to_numpy()
+
+        covariance = (
+            covariance + covariance.T
+        ) / 2
+
+        eigenvalues, eigenvectors = np.linalg.eigh(
+            covariance
+        )
+
+        eigenvalues = np.maximum(
+            eigenvalues,
+            self.ridge,
+        )
+
+        covariance = (
+            eigenvectors
+            @ np.diag(eigenvalues)
+            @ eigenvectors.T
+        )
+
+        return valid_tickers, mu, covariance
+
+    def optimise_side(
+        self,
+        tickers: list[str],
+        mu: np.ndarray,
+        covariance: np.ndarray,
+        side: str,
+    ) -> pd.DataFrame:
+
         n = len(tickers)
 
         if n == 0:
-            raise ValueError(f"No tickers for {side}")
+            raise ValueError(f"No tickers selected for {side}.")
 
-        min_required_bound = 1 / n
-        effective_bound = max(self.weight_bound, min_required_bound)
+        if n * self.weight_bound < 1:
+            raise ValueError(
+                f"{side} has {n} tickers, which is insufficient "
+                f"for a strict {self.weight_bound:.0%} weight cap. "
+                f"At least {int(np.ceil(1 / self.weight_bound))} "
+                "tickers are required."
+            )
 
-        x0 = np.ones(n) / n
-        bounds = [(0.0, effective_bound)] * n
+        objective_mu = (
+            mu if side == "long" else -mu
+        )
 
-        constraints = [
-            {"type": "eq", "fun": lambda w: np.sum(w) - 1.0}
+        initial_weights = np.full(n, 1 / n)
+
+        bounds = [
+            (0.0, self.weight_bound)
+            for _ in range(n)
         ]
 
-        if side == "short":
-            mu = -mu
-
-        cov = np.nan_to_num(cov, nan=0.0, posinf=0.0, neginf=0.0)
-        cov = cov + np.eye(n) * self.ridge
+        constraints = [{
+            "type": "eq",
+            "fun": lambda weights: weights.sum() - 1.0,
+        }]
 
         result = minimize(
             self.neg_sharpe,
-            x0=x0,
-            args=(mu, cov),
+            x0=initial_weights,
+            args=(objective_mu, covariance),
             method="SLSQP",
             bounds=bounds,
             constraints=constraints,
-            options={"maxiter": 1000, "ftol": 1e-9},
+            options={
+                "maxiter": 1000,
+                "ftol": 1e-9,
+            },
         )
 
         if not result.success:
-            print(f"{side} optimisation failed: {result.message}")
-            weights = x0
-        else:
-            weights = result.x
+            raise RuntimeError(
+                f"{side} optimisation failed: "
+                f"{result.message}"
+            )
 
-        weights = np.clip(weights, 0.0, effective_bound)
+        weights = result.x
 
-        if weights.sum() == 0:
-            weights = x0
-        else:
-            weights = weights / weights.sum()
+        if not np.isclose(weights.sum(), 1.0):
+            raise RuntimeError(
+                f"{side} weights do not sum to one: "
+                f"{weights.sum():.8f}"
+            )
 
         if side == "short":
             weights = -weights
@@ -86,55 +236,99 @@ class MeanVarianceOptimiser:
             "side": side,
         })
 
-    def optimise_one_date(self, date):
+    def optimise_one_date(
+        self,
+        date: pd.Timestamp,
+    ) -> pd.DataFrame:
+
         date = pd.Timestamp(date)
 
-        day_df = self.selected_df[self.selected_df["Date"] == date].copy()
+        day_df = self.selected_df.loc[
+            self.selected_df["Date"] == date
+        ].copy()
+
         portfolio_parts = []
 
-        for side in ["long", "short"]:
-            side_df = day_df[day_df["side"] == side].copy()
+        for side in ("long", "short"):
+            side_df = day_df.loc[
+                day_df["side"] == side
+            ].copy()
 
-            tickers = side_df["Ticker"].tolist()
+            if side_df.empty:
+                raise ValueError(
+                    f"No {side} stocks selected."
+                )
 
-            mu = (
-                side_df
-                .set_index("Ticker")
-                .loc[tickers, "prediction"]
-                .astype(float)
-                .values
-            )
-
-            cov = (
-                self.returns_df
-                .loc[:date, tickers]
-                .tail(self.covariance_window)
-                .cov()
-                .values
+            tickers, mu, covariance = self.prepare_inputs(
+                date=date,
+                side_df=side_df,
             )
 
             weights_df = self.optimise_side(
                 tickers=tickers,
                 mu=mu,
-                cov=cov,
+                covariance=covariance,
                 side=side,
             )
 
             weights_df["Date"] = date
             portfolio_parts.append(weights_df)
 
-        return pd.concat(portfolio_parts, ignore_index=True)
+        result = pd.concat(
+            portfolio_parts,
+            ignore_index=True,
+        )
 
-    def run_data(self):
+        gross_exposure = result["weight"].abs().sum()
+        net_exposure = result["weight"].sum()
+
+        if not np.isclose(gross_exposure, 2.0):
+            raise RuntimeError(
+                f"Unexpected gross exposure: {gross_exposure:.6f}"
+            )
+
+        if not np.isclose(net_exposure, 0.0):
+            raise RuntimeError(
+                f"Unexpected net exposure: {net_exposure:.6f}"
+            )
+
+        return result
+
+    def run_data(self) -> pd.DataFrame:
         portfolio_list = []
+        failed_dates = []
 
-        dates = sorted(self.selected_df["Date"].dropna().unique())
+        dates = sorted(
+            self.selected_df["Date"]
+            .dropna()
+            .unique()
+        )
 
         for date in dates:
             try:
-                weights_df = self.optimise_one_date(date)
-                portfolio_list.append(weights_df)
-            except Exception as e:
-                print(f"{date}: optimisation skipped ({e})")
+                portfolio_list.append(
+                    self.optimise_one_date(date)
+                )
+            except Exception as error:
+                failed_dates.append((date, str(error)))
+                print(
+                    f"{pd.Timestamp(date).date()}: "
+                    f"optimisation failed ({error})"
+                )
 
-        return pd.concat(portfolio_list, ignore_index=True)
+        if not portfolio_list:
+            raise RuntimeError(
+                "No portfolio dates were successfully optimised."
+            )
+
+        if failed_dates:
+            print(
+                f"Warning: {len(failed_dates)} of "
+                f"{len(dates)} rebalance dates failed."
+            )
+
+        return (
+            pd.concat(portfolio_list, ignore_index=True)
+            .sort_values(["Date", "side", "Ticker"])
+            .reset_index(drop=True)
+        )
